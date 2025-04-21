@@ -1,3 +1,125 @@
+import React, { useState, useEffect, useContext, useRef } from "react";
+import axios from "axios";
+import { ToastContainer, toast } from "react-toastify";
+import { AuthContext } from "../App";
+import io from "socket.io-client";
+import { FiSend } from "react-icons/fi";
+
+const socket = io("http://localhost:3000", { autoConnect: false });
+
+function Chat({ chatId, recipient, onMessageSent }) {
+  const { user } = useContext(AuthContext);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState("");
+  const messagesEndRef = useRef(null);
+
+  const fetchMessages = async () => {
+    try {
+      console.log("Fetching messages for chatId:", chatId);
+      const response = await axios.get(`http://localhost:3000/messages/${chatId}`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      console.log("Messages fetched:", response.data);
+      setMessages(response.data);
+    } catch (err) {
+      console.error("Fetch messages error:", err.message);
+      toast.error(err.response?.data?.error || "Ошибка загрузки сообщений");
+    }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    console.log("Chat.js mounted with chatId:", chatId, "recipient:", recipient);
+    fetchMessages();
+    socket.connect();
+    socket.emit("joinChat", chatId);
+    socket.on("newMessage", (message) => {
+      console.log("New message received:", message);
+      if (message.chatId === chatId) {
+        setMessages((prev) => [...prev, message]);
+      }
+    });
+    return () => {
+      socket.off("newMessage");
+      socket.disconnect();
+    };
+  }, [chatId, user]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    console.log("sendMessage called with newMessage:", newMessage, "chatId:", chatId);
+    if (!newMessage.trim()) {
+      console.log("Empty message, aborting send");
+      toast.error("Введите сообщение");
+      return;
+    }
+    try {
+      const response = await axios.post(
+        `http://localhost:3000/messages/${chatId}`,
+        { text: newMessage.trim() },
+        { headers: { Authorization: `Bearer ${user.token}` } }
+      );
+      console.log("Message sent:", response.data);
+      setNewMessage("");
+      onMessageSent();
+    } catch (err) {
+      console.error("Send message error:", err.message, err.response?.data);
+      toast.error(err.response?.data?.error || "Ошибка отправки сообщения");
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  return (
+    <div className="chat">
+      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
+      <div className="chat-header">
+        <h3>{recipient}</h3>
+      </div>
+      <div className="chat-messages">
+        {messages.length ? (
+          messages.map((msg) => (
+            <div
+              key={msg._id}
+              className={`chat-message ${msg.from === user.username ? "sent" : "received"}`}
+            >
+              <p>{msg.text}</p>
+              <span className="chat-timestamp">
+                {new Date(msg.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+          ))
+        ) : (
+          <p>Нет сообщений</p>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+      <div className="chat-input">
+        <textarea
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onKeyPress={handleKeyPress}
+          placeholder="Введите сообщение..."
+        />
+        <button onClick={sendMessage}>
+          <FiSend /> Отправить
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default Chat;
+
+
 import React, { useState, useEffect, useContext } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
@@ -16,13 +138,14 @@ function Messages() {
 
   const fetchChats = async () => {
     try {
+      console.log("Fetching chats...");
       const response = await axios.get("http://localhost:3000/messages", {
         headers: { Authorization: `Bearer ${user.token}` },
       });
       console.log("Chats fetched:", response.data);
       setChats(response.data);
     } catch (err) {
-      console.error("Fetch chats error:", err);
+      console.error("Fetch chats error:", err.message, err.response?.data);
       toast.error(err.response?.data?.error || "Ошибка загрузки чатов");
     }
   };
@@ -57,7 +180,6 @@ function Messages() {
       }
       const chatId = generateChatId(user.username, startChatWith);
       console.log("Generated chatId:", chatId, "for user:", startChatWith);
-      // Проверяем, существует ли чат
       const existingChat = chats.find((chat) => chat.id === chatId);
       if (existingChat) {
         console.log("Existing chat found:", existingChat);
@@ -190,7 +312,8 @@ mongoose
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => console.log("Connected to MongoDB"));
+  .then(() => console.log("Connected to MongoDB"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
 // Middleware для проверки токена
 const authMiddleware = (req, res, next) => {
@@ -228,6 +351,7 @@ io.on("connection", (socket) => {
     socket.join(postId);
   });
   socket.on("joinChat", (chatId) => {
+    console.log("Client joined chat:", chatId);
     socket.join(chatId);
   });
   socket.on("disconnect", () => {
@@ -238,6 +362,7 @@ io.on("connection", (socket) => {
 // Эндпоинты сообщений
 app.get("/messages", authMiddleware, async (req, res) => {
   try {
+    console.log("GET /messages called for user:", req.user.username);
     const messages = await Message.aggregate([
       {
         $match: {
@@ -267,7 +392,6 @@ app.get("/messages", authMiddleware, async (req, res) => {
         $sort: { timestamp: -1 },
       },
     ]);
-
     res.json(
       messages.map((chat) => ({
         id: chat._id,
@@ -277,13 +401,14 @@ app.get("/messages", authMiddleware, async (req, res) => {
       }))
     );
   } catch (err) {
-    console.error("Fetch messages error:", err);
+    console.error("Fetch messages error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения чатов" });
   }
 });
 
 app.get("/messages/:chatId", authMiddleware, async (req, res) => {
   try {
+    console.log("GET /messages/:chatId called, chatId:", req.params.chatId);
     const [user1, user2] = req.params.chatId.split("_");
     if (![user1, user2].includes(req.user.username)) {
       return res.status(403).json({ error: "Недостаточно прав" });
@@ -293,7 +418,7 @@ app.get("/messages/:chatId", authMiddleware, async (req, res) => {
     });
     res.json(messages);
   } catch (err) {
-    console.error("Fetch chat messages error:", err);
+    console.error("Fetch chat messages error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения сообщений" });
   }
 });
@@ -307,10 +432,17 @@ app.post("/messages/:chatId", authMiddleware, async (req, res) => {
   }
   try {
     const [user1, user2] = req.params.chatId.split("_");
+    console.log("Parsed chatId - user1:", user1, "user2:", user2);
+    if (!user1 || !user2) {
+      console.log("POST /messages/:chatId - Error: Invalid chatId format");
+      return res.status(400).json({ error: "Неверный формат chatId" });
+    }
     if (![user1, user2].includes(req.user.username)) {
+      console.log("POST /messages/:chatId - Error: Unauthorized, user:", req.user.username);
       return res.status(403).json({ error: "Недостаточно прав" });
     }
     const recipient = user1 === req.user.username ? user2 : user1;
+    console.log("Recipient:", recipient);
     const recipientUser = await User.findOne({ username: recipient });
     if (!recipientUser) {
       console.log("POST /messages/:chatId - Error: Recipient not found:", recipient);
@@ -322,9 +454,9 @@ app.post("/messages/:chatId", authMiddleware, async (req, res) => {
       to: recipient,
       text,
     });
-    console.log("Saving message:", message);
+    console.log("Saving message:", JSON.stringify(message, null, 2));
     await message.save();
-    console.log("Message saved:", message);
+    console.log("Message saved:", JSON.stringify(message, null, 2));
     io.to(req.params.chatId).emit("newMessage", message);
     res.json(message);
   } catch (err) {
@@ -341,7 +473,7 @@ app.get("/messages/unread", authMiddleware, async (req, res) => {
     });
     res.json({ unreadMessagesCount: unreadCount });
   } catch (err) {
-    console.error("Fetch unread messages error:", err);
+    console.error("Fetch unread messages error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения непрочитанных сообщений" });
   }
 });
@@ -358,7 +490,7 @@ app.post("/messages/:chatId/read", authMiddleware, async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) {
-    console.error("Mark messages read error:", err);
+    console.error("Mark messages read error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка отметки сообщений" });
   }
 });
@@ -388,7 +520,7 @@ app.post("/messages/start", authMiddleware, async (req, res) => {
     console.log("Chat initiated - chatId:", chatId);
     res.json({ chatId });
   } catch (err) {
-    console.error("Start chat error:", err);
+    console.error("Start chat error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка начала чата" });
   }
 });
@@ -402,7 +534,7 @@ app.post("/upload-media", authMiddleware, upload.single("media"), async (req, re
     const mediaUrl = `http://localhost:3000/uploads/${req.file.filename}`;
     res.json({ mediaUrl });
   } catch (err) {
-    console.error("Upload media error:", err);
+    console.error("Upload media error:", err.message, err.stack);
     res.status(500).json({ error: err.message || "Ошибка загрузки медиа" });
   }
 });
@@ -414,7 +546,7 @@ app.get("/check-subscription/:username", authMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ error: "Пользователь не найден" });
     res.json({ isSubscribed: user.subscribers.includes(req.user.id) });
   } catch (err) {
-    console.error("Check subscription error:", err);
+    console.error("Check subscription error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка сервера" });
   }
 });
@@ -436,7 +568,7 @@ app.post("/register", async (req, res) => {
     );
     res.json({ username, role: user.role, authorNickname: user.authorNickname, token });
   } catch (err) {
-    console.error("Register error:", err);
+    console.error("Register error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка регистрации" });
   }
 });
@@ -455,7 +587,7 @@ app.post("/login", async (req, res) => {
     );
     res.json({ username, role: user.role, authorNickname: user.authorNickname, token });
   } catch (err) {
-    console.error("Login error:", err);
+    console.error("Login error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка входа" });
   }
 });
@@ -487,7 +619,7 @@ app.post("/become-author", authMiddleware, async (req, res) => {
       token,
     });
   } catch (err) {
-    console.error("Become author error:", err);
+    console.error("Become author error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка сервера" });
   }
 });
@@ -506,7 +638,7 @@ app.post("/subscription-price", authMiddleware, async (req, res) => {
     );
     res.json({ subscriptionPrice: user.subscriptionPrice });
   } catch (err) {
-    console.error("Set subscription price error:", err);
+    console.error("Set subscription price error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка сервера" });
   }
 });
@@ -531,7 +663,7 @@ app.post("/subscribe/:username", authMiddleware, async (req, res) => {
     io.emit("subscriptionUpdate", { authorId: author._id, subscribers: author.subscribers.length });
     res.json({ subscribed: !isSubscribed, subscriptionPrice: author.subscriptionPrice });
   } catch (err) {
-    console.error("Subscribe error:", err);
+    console.error("Subscribe error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка сервера" });
   }
 });
@@ -553,7 +685,7 @@ app.get("/users/:username", async (req, res) => {
       socialLinks: user.socialLinks,
     });
   } catch (err) {
-    console.error("Fetch user error:", err);
+    console.error("Fetch user error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка сервера" });
   }
 });
@@ -566,7 +698,7 @@ app.get("/users", async (req, res) => {
       .limit(10);
     res.json(users);
   } catch (err) {
-    console.error("Fetch users error:", err);
+    console.error("Fetch users error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения пользователей" });
   }
 });
@@ -580,7 +712,7 @@ app.get("/favorites", authMiddleware, async (req, res) => {
     }).select("username authorNickname avatarUrl subscribers");
     res.json({ favorites });
   } catch (err) {
-    console.error("Fetch favorites error:", err);
+    console.error("Fetch favorites error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения избранного" });
   }
 });
@@ -606,7 +738,7 @@ app.post("/toggle-favorite", authMiddleware, async (req, res) => {
     await user.save();
     res.json({ favorites: user.favorites });
   } catch (err) {
-    console.error("Toggle favorite error:", err);
+    console.error("Toggle favorite error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка обновления избранного" });
   }
 });
@@ -627,7 +759,7 @@ app.get("/search-authors", authMiddleware, async (req, res) => {
     }).select("username authorNickname subscriptionPrice subscribers avatarUrl");
     res.json({ authors });
   } catch (err) {
-    console.error("Search authors error:", err);
+    console.error("Search authors error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка поиска авторов" });
   }
 });
@@ -647,7 +779,7 @@ app.post("/posts", authMiddleware, async (req, res) => {
     io.emit("newPost", post);
     res.json(post);
   } catch (err) {
-    console.error("Post error:", err);
+    console.error("Post error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка публикации" });
   }
 });
@@ -658,7 +790,7 @@ app.get("/posts/:username", async (req, res) => {
     const posts = await Post.find({ username: req.params.username }).sort({ timestamp: -1 });
     res.json(posts);
   } catch (err) {
-    console.error("Fetch posts error:", err);
+    console.error("Fetch posts error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения постов" });
   }
 });
@@ -669,7 +801,7 @@ app.get("/posts", async (req, res) => {
     const posts = await Post.find().sort({ timestamp: -1 });
     res.json(posts);
   } catch (err) {
-    console.error("Fetch all posts error:", err);
+    console.error("Fetch all posts error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения постов" });
   }
 });
@@ -684,7 +816,7 @@ app.delete("/posts/:id", authMiddleware, async (req, res) => {
     await Post.deleteOne({ _id: req.params.id });
     res.json({ success: true });
   } catch (err) {
-    console.error("Delete post error:", err);
+    console.error("Delete post error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка удаления" });
   }
 });
@@ -706,7 +838,7 @@ app.post("/posts/:id/like", authMiddleware, async (req, res) => {
     io.to(post._id.toString()).emit("likeUpdate", { postId: post._id, likes: post.likes });
     res.json({ likes: post.likes });
   } catch (err) {
-    console.error("Like post error:", err);
+    console.error("Like post error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка сервера" });
   }
 });
@@ -730,7 +862,7 @@ app.post("/posts/:id/comment", authMiddleware, async (req, res) => {
     });
     res.json(post.comments);
   } catch (err) {
-    console.error("Comment post error:", err);
+    console.error("Comment post error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка сервера" });
   }
 });
@@ -753,7 +885,7 @@ app.post("/donate/:username", authMiddleware, async (req, res) => {
     io.emit("depositUpdate", { username: req.params.username, amount });
     res.json({ success: true });
   } catch (err) {
-    console.error("Donate error:", err);
+    console.error("Donate error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка доната" });
   }
 });
@@ -765,7 +897,7 @@ app.get("/balance/:username", authMiddleware, async (req, res) => {
     if (!user) return res.status(404).json({ error: "Пользователь не найден" });
     res.json({ balance: user.balance });
   } catch (err) {
-    console.error("Balance error:", err);
+    console.error("Balance error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения баланса" });
   }
 });
@@ -779,7 +911,7 @@ app.get("/generate/:username/qr", authMiddleware, async (req, res) => {
     const qr = await QRCode.toDataURL(address);
     res.json({ qr, address });
   } catch (err) {
-    console.error("Generate QR error:", err);
+    console.error("Generate QR error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка генерации QR" });
   }
 });
@@ -812,7 +944,7 @@ app.post("/update-profile", authMiddleware, upload.single("avatar"), async (req,
       token,
     });
   } catch (err) {
-    console.error("Update profile error:", err);
+    console.error("Update profile error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка обновления профиля" });
   }
 });
@@ -823,7 +955,7 @@ app.get("/admin/users", authMiddleware, adminMiddleware, async (req, res) => {
     const users = await User.find();
     res.json(users);
   } catch (err) {
-    console.error("Fetch users error:", err);
+    console.error("Fetch users error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения пользователей" });
   }
 });
@@ -834,7 +966,7 @@ app.get("/admin/posts", authMiddleware, adminMiddleware, async (req, res) => {
     const posts = await Post.find();
     res.json(posts);
   } catch (err) {
-    console.error("Fetch posts error:", err);
+    console.error("Fetch posts error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка получения постов" });
   }
 });
@@ -845,7 +977,7 @@ app.delete("/admin/users/:username", authMiddleware, adminMiddleware, async (req
     await User.deleteOne({ username: req.params.username });
     res.json({ success: true });
   } catch (err) {
-    console.error("Delete user error:", err);
+    console.error("Delete user error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка удаления пользователя" });
   }
 });
@@ -856,7 +988,7 @@ app.delete("/admin/posts/:id", authMiddleware, adminMiddleware, async (req, res)
     await Post.deleteOne({ _id: req.params.id });
     res.json({ success: true });
   } catch (err) {
-    console.error("Delete post error:", err);
+    console.error("Delete post error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка удаления поста" });
   }
 });
@@ -879,8 +1011,19 @@ createTestMediaPost();
 server.listen(3000, () => console.log("Server running on port 3000"));
 
 
+Message.js:
+const mongoose = require("mongoose");
 
+const messageSchema = new mongoose.Schema({
+  chatId: { type: String, required: true },
+  from: { type: String, required: true },
+  to: { type: String, required: true },
+  text: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now },
+  read: { type: Boolean, default: false },
+});
 
+module.exports = mongoose.model("Message", messageSchema);
 
 
 
