@@ -5,6 +5,8 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { AuthContext } from "../App";
 import Chat from "./Chat";
+import { FiUser } from "react-icons/fi";
+import "../App.css";
 
 function Messages() {
   const { user } = useContext(AuthContext);
@@ -75,16 +77,30 @@ function Messages() {
           with: startChatWith,
           lastMessage: null,
           timestamp: new Date(),
+          unreadCount: 0,
         });
         setSelectedChatId(chatId);
       }
     }
   }, [user, location, navigate, chats]);
 
-  const handleSelectChat = (chatId) => {
+  const handleSelectChat = async (chatId) => {
     setSelectedChatId(chatId);
     setTempChat(null);
     navigate("/messages");
+    try {
+      console.log("Marking messages as read for chatId:", chatId);
+      await axios.post(
+        `http://localhost:3000/messages/${chatId}/read`,
+        {},
+        { headers: { Authorization: `Bearer ${user.token}` } }
+      );
+      console.log("Messages marked as read for chatId:", chatId);
+      fetchChats(); // Обновляем список чатов после отметки
+    } catch (err) {
+      console.error("Mark messages read error:", err.message, err.response?.data);
+      toast.error(err.response?.data?.error || "Ошибка отметки сообщений");
+    }
   };
 
   return (
@@ -98,9 +114,15 @@ function Messages() {
               className={`chat-item ${selectedChatId === tempChat.id ? "active" : ""}`}
               onClick={() => handleSelectChat(tempChat.id)}
             >
+              <div className="chat-avatar">
+                <FiUser />
+              </div>
               <div className="chat-info">
                 <span className="chat-with">{tempChat.with}</span>
-                <span className="chat-preview">Новый чат</span>
+                <span className="chat-last-message">Новый чат</span>
+                {tempChat.unreadCount > 0 && (
+                  <span className="badge">{tempChat.unreadCount}</span>
+                )}
               </div>
             </li>
           )}
@@ -110,9 +132,15 @@ function Messages() {
               className={`chat-item ${selectedChatId === chat.id ? "active" : ""}`}
               onClick={() => handleSelectChat(chat.id)}
             >
+              <div className="chat-avatar">
+                <FiUser />
+              </div>
               <div className="chat-info">
                 <span className="chat-with">{chat.with}</span>
-                <span className="chat-preview">{chat.lastMessage || "Нет сообщений"}</span>
+                <span className="chat-last-message">{chat.lastMessage || "Нет сообщений"}</span>
+                {chat.unreadCount > 0 && (
+                  <span className="badge">{chat.unreadCount}</span>
+                )}
               </div>
             </li>
           ))}
