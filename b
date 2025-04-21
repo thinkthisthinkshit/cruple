@@ -331,3 +331,251 @@ function AuthorProfile() {
 }
 
 export default AuthorProfile;
+
+
+
+Messages.js:
+import React, { useState, useEffect, useContext } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import axios from "axios";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import { AuthContext } from "../App";
+import Chat from "./Chat";
+
+function Messages() {
+  const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [chats, setChats] = useState([]);
+  const [selectedChatId, setSelectedChatId] = useState(null);
+  const [tempChat, setTempChat] = useState(null);
+
+  const fetchChats = async () => {
+    try {
+      const response = await axios.get("http://localhost:3000/messages", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      console.log("Chats fetched:", response.data);
+      setChats(response.data);
+    } catch (err) {
+      console.error("Fetch chats error:", err);
+      toast.error(err.response?.data?.error || "Ошибка загрузки чатов");
+    }
+  };
+
+  const generateChatId = (user1, user2) => {
+    return [user1, user2].sort().join("_");
+  };
+
+  useEffect(() => {
+    if (!user) {
+      toast.error("Войдите, чтобы просматривать чаты");
+      navigate("/login");
+      return;
+    }
+    fetchChats();
+
+    const params = new URLSearchParams(location.search);
+    const startChatWith = params.get("startChatWith");
+    if (startChatWith) {
+      console.log("Processing startChatWith:", startChatWith);
+      if (startChatWith === user.username) {
+        console.error("Cannot start chat with self:", startChatWith);
+        toast.error("Нельзя начать чат с собой");
+        navigate("/messages");
+        return;
+      }
+      if (!startChatWith || typeof startChatWith !== "string" || startChatWith.trim() === "") {
+        console.error("Invalid startChatWith:", startChatWith);
+        toast.error("Ошибка: имя пользователя некорректно");
+        navigate("/messages");
+        return;
+      }
+      const chatId = generateChatId(user.username, startChatWith);
+      console.log("Starting chat with:", startChatWith, "Chat ID:", chatId);
+      setTempChat({
+        id: chatId,
+        with: startChatWith,
+        lastMessage: null,
+        timestamp: new Date(),
+      });
+      setSelectedChatId(chatId);
+    }
+  }, [user, location, navigate]);
+
+  const handleSelectChat = (chatId) => {
+    setSelectedChatId(chatId);
+    setTempChat(null);
+    navigate("/messages");
+  };
+
+  return (
+    <div className="messages-container">
+      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
+      <div className="messages-sidebar">
+        <h2>Чаты</h2>
+        <ul className="chat-list">
+          {tempChat && (
+            <li
+              className={`chat-item ${selectedChatId === tempChat.id ? "active" : ""}`}
+              onClick={() => handleSelectChat(tempChat.id)}
+            >
+              <div className="chat-info">
+                <span className="chat-with">{tempChat.with}</span>
+                <span className="chat-preview">Новый чат</span>
+              </div>
+            </li>
+          )}
+          {chats.map((chat) => (
+            <li
+              key={chat.id}
+              className={`chat-item ${selectedChatId === chat.id ? "active" : ""}`}
+              onClick={() => handleSelectChat(chat.id)}
+            >
+              <div className="chat-info">
+                <span className="chat-with">{chat.with}</span>
+                <span className="chat-preview">{chat.lastMessage || "Нет сообщений"}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {selectedChatId && (
+        <div className="chat-container">
+          <Chat
+            chatId={selectedChatId}
+            recipient={tempChat ? tempChat.with : chats.find((c) => c.id === selectedChatId)?.with}
+            onMessageSent={() => fetchChats()}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Messages;
+
+
+
+Chat.js:
+import React, { useState, useEffect, useContext, useRef } from "react";
+import axios from "axios";
+import { ToastContainer, toast } from "react-toastify";
+import { AuthContext } from "../App";
+import io from "socket.io-client";
+import { FiSend } from "react-icons/fi";
+
+const socket = io("http://localhost:3000");
+
+function Chat({ chatId, recipient, onMessageSent }) {
+  const { user } = useContext(AuthContext);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState("");
+  const messagesEndRef = useRef(null);
+
+  const fetchMessages = async () => {
+    try {
+      const response = await axios.get(`http://localhost:3000/messages/${chatId}`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      console.log("Messages fetched for chatId:", chatId, response.data);
+      setMessages(response.data);
+    } catch (err) {
+      console.error("Fetch messages error:", err);
+      toast.error(err.response?.data?.error || "Ошибка загрузки сообщений");
+    }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    console.log("Chat.js mounted with chatId:", chatId, "recipient:", recipient);
+    fetchMessages();
+    socket.emit("joinChat", chatId);
+    socket.on("newMessage", (message) => {
+      if (message.chatId === chatId) {
+        setMessages((prev) => [...prev, message]);
+      }
+    });
+    return () => {
+      socket.off("newMessage");
+    };
+  }, [chatId, user]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    console.log("sendMessage called with newMessage:", newMessage, "chatId:", chatId);
+    if (!newMessage.trim()) {
+      toast.error("Введите сообщение");
+      return;
+    }
+    try {
+      const response = await axios.post(
+        `http://localhost:3000/messages/${chatId}`,
+        { text: newMessage.trim() },
+        { headers: { Authorization: `Bearer ${user.token}` } }
+      );
+      console.log("Message sent:", response.data);
+      setNewMessage("");
+      onMessageSent();
+    } catch (err) {
+      console.error("Send message error:", err);
+      toast.error(err.response?.data?.error || "Ошибка отправки сообщения");
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  return (
+    <div className="chat">
+      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
+      <div className="chat-header">
+        <h3>{recipient}</h3>
+      </div>
+      <div className="chat-messages">
+        {messages.length ? (
+          messages.map((msg) => (
+            <div
+              key={msg._id}
+              className={`chat-message ${msg.from === user.username ? "sent" : "received"}`}
+            >
+              <p>{msg.text}</p>
+              <span className="chat-timestamp">
+                {new Date(msg.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+          ))
+        ) : (
+          <p>Нет сообщений</p>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+      <div className="chat-input">
+        <textarea
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onKeyPress={handleKeyPress}
+          placeholder="Введите сообщение..."
+        />
+        <button onClick={sendMessage}>
+          <FiSend /> Отправить
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default Chat;
+
+
+
+
+
