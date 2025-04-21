@@ -1,17 +1,3 @@
-Message.js:
-const mongoose = require("mongoose");
-
-const messageSchema = new mongoose.Schema({
-  sender: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  recipient: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  content: { type: String, required: true },
-  timestamp: { type: Date, default: Date.now },
-  chatId: { type: String, required: true }, // Уникальный идентификатор чата (например, "senderId_recipientId")
-});
-
-module.exports = mongoose.model("Message", messageSchema);
-
-server.js:
 const express = require("express");
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
@@ -24,7 +10,7 @@ const socketIo = require("socket.io");
 const multer = require("multer");
 const User = require("./models/User");
 const Post = require("./models/Post");
-const Message = require("./models/Message"); // Новая модель
+const Message = require("./models/Message");
 
 const app = express();
 const server = http.createServer(app);
@@ -109,6 +95,39 @@ app.post("/become-author", authMiddleware, async (req, res) => {
   }
 });
 
+// Обновление профиля
+app.post("/update-profile", authMiddleware, upload.single("avatar"), async (req, res) => {
+  try {
+    const { authorNickname, about, socialLinks } = req.body;
+    const updateData = { authorNickname, about };
+    if (socialLinks) updateData.socialLinks = JSON.parse(socialLinks);
+    if (req.file) {
+      updateData.avatarUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+    }
+    const user = await User.findOneAndUpdate(
+      { _id: req.user.id },
+      updateData,
+      { new: true }
+    );
+    const token = jwt.sign(
+      { username: user.username, role: user.role, authorNickname: user.authorNickname, id: user._id },
+      "secret"
+    );
+    res.json({
+      username: user.username,
+      role: user.role,
+      authorNickname: user.authorNickname,
+      about: user.about,
+      socialLinks: user.socialLinks,
+      avatarUrl: user.avatarUrl,
+      token,
+    });
+  } catch (err) {
+    console.error("Update profile error:", err);
+    res.status(500).json({ error: "Ошибка обновления профиля" });
+  }
+});
+
 // Получение топ-10 пользователей
 app.get("/users", async (req, res) => {
   try {
@@ -139,6 +158,65 @@ app.get("/generate/:username/qr", authMiddleware, async (req, res) => {
 // Получение баланса
 app.get("/balance", authMiddleware, async (req, res) => {
   res.json({ balance: 0 }); // Заглушка
+});
+
+// Профиль автора
+app.get("/author/:username", async (req, res) => {
+  try {
+    const user = await User.findOne({ username: req.params.username });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Посты автора
+app.get("/author/:username/posts", async (req, res) => {
+  try {
+    const posts = await Post.find({ username: req.params.username }).sort({ createdAt: -1 });
+    res.json(posts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Подписка
+app.post("/subscribe/:username", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findOne({ _id: req.user.id });
+    const author = await User.findOne({ username: req.params.username });
+    if (!author) return res.status(404).json({ error: "Author not found" });
+    if (user.subscribers.includes(author._id)) {
+      return res.status(400).json({ error: "Already subscribed" });
+    }
+    user.subscribers.push(author._id);
+    author.subscribers = author.subscribers || [];
+    author.subscribers.push(user._id);
+    await Promise.all([user.save(), author.save()]);
+    res.json({ message: "Subscribed" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Отписка
+app.post("/unsubscribe/:username", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findOne({ _id: req.user.id });
+    const author = await User.findOne({ username: req.params.username });
+    if (!author) return res.status(404).json({ error: "Author not found" });
+    user.subscribers = user.subscribers.filter(
+      (id) => id.toString() !== author._id.toString()
+    );
+    author.subscribers = author.subscribers.filter(
+      (id) => id.toString() !== user._id.toString()
+    );
+    await Promise.all([user.save(), author.save()]);
+    res.json({ message: "Unsubscribed" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Создание поста
@@ -202,6 +280,25 @@ app.post("/posts/:id/like", authMiddleware, async (req, res) => {
   }
 });
 
+// Комментарии к посту
+app.post("/posts/:id/comments", authMiddleware, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.status(404).json({ error: "Post not found" });
+    const comment = {
+      username: req.user.username,
+      text: req.body.text,
+      createdAt: new Date(),
+    };
+    post.comments.push(comment);
+    await post.save();
+    io.emit("newComment", { postId: req.params.id, comment });
+    res.json(post);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Получение списка чатов пользователя
 app.get("/messages", authMiddleware, async (req, res) => {
   try {
@@ -213,7 +310,6 @@ app.get("/messages", authMiddleware, async (req, res) => {
       .populate("recipient", "username authorNickname")
       .sort({ timestamp: -1 });
 
-    // Группировка сообщений по chatId
     const chats = {};
     messages.forEach((msg) => {
       if (!chats[msg.chatId]) {
@@ -242,7 +338,6 @@ app.get("/messages/:chatId", authMiddleware, async (req, res) => {
       .populate("recipient", "username authorNickname")
       .sort({ timestamp: 1 });
 
-    // Проверка, что пользователь участвует в чате
     const isParticipant = messages.some(
       (msg) =>
         msg.sender._id.toString() === userId || msg.recipient._id.toString() === userId
@@ -310,88 +405,6 @@ io.on("connection", (socket) => {
 
 server.listen(3000, () => console.log("Server running on port 3000"));
 
-Messages.js:
-import React, { useContext, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { AuthContext } from "../App";
-import { Helmet, HelmetProvider } from "react-helmet-async";
-import axios from "axios";
-import { FiMessageSquare } from "react-icons/fi";
-
-function Messages() {
-  const { user } = useContext(AuthContext);
-  const navigate = useNavigate();
-  const [chats, setChats] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchChats = async () => {
-      try {
-        const response = await axios.get("http://localhost:3000/messages", {
-          headers: { Authorization: `Bearer ${user.token}` },
-        });
-        setChats(response.data);
-      } catch (err) {
-        console.error("Fetch chats error:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (user) fetchChats();
-  }, [user]);
-
-  if (!user) {
-    navigate("/login");
-    return null;
-  }
-
-  return (
-    <HelmetProvider>
-      <div className="messages-container">
-        <Helmet>
-          <title>Сообщения - CryptoAuthors</title>
-          <meta
-            name="description"
-            content="Общайтесь с авторами и другими пользователями на CryptoAuthors."
-          />
-        </Helmet>
-        <h1>Сообщения</h1>
-        <div className="chat-list">
-          {loading ? (
-            <p>Загрузка...</p>
-          ) : chats.length ? (
-            <ul>
-              {chats.map((chat) => (
-                <li
-                  key={chat.chatId}
-                  className="chat-item"
-                  onClick={() => navigate(`/messages/${chat.chatId}`)}
-                >
-                  <div className="chat-avatar">
-                    <FiMessageSquare />
-                  </div>
-                  <div className="chat-info">
-                    <span className="chat-with">
-                      {chat.with.authorNickname || chat.with.username}
-                    </span>
-                    <p className="chat-last-message">{chat.lastMessage}</p>
-                    <small>{new Date(chat.timestamp).toLocaleString()}</small>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>Нет чатов</p>
-          )}
-        </div>
-      </div>
-    </HelmetProvider>
-  );
-}
-
-export default Messages;
-
-Chat.js:
 import React, { useState, useEffect, useContext, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { AuthContext } from "../App";
@@ -414,6 +427,11 @@ function Chat() {
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+
     const fetchMessages = async () => {
       try {
         const response = await axios.get(`http://localhost:3000/messages/${chatId}`, {
@@ -430,18 +448,14 @@ function Chat() {
       }
     };
 
-    if (user) {
-      fetchMessages();
-      socket.emit("joinChat", chatId);
-      socket.on("newMessage", (message) => {
-        setMessages((prev) => [...prev, message]);
-      });
-      socket.on("error", ({ message }) => {
-        toast.error(message);
-      });
-    } else {
-      navigate("/login");
-    }
+    fetchMessages();
+    socket.emit("joinChat", chatId);
+    socket.on("newMessage", (message) => {
+      setMessages((prev) => [...prev, message]);
+    });
+    socket.on("error", ({ message }) => {
+      toast.error(message);
+    });
 
     return () => {
       socket.off("newMessage");
@@ -524,215 +538,3 @@ function Chat() {
 }
 
 export default Chat;
-
-AuthorProfile.js:
-import React, { useState, useEffect, useContext } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { AuthContext } from "../App";
-import { Helmet, HelmetProvider } from "react-helmet-async";
-import Post from "./Post";
-import Media from "./Media";
-import SubscribeButton from "./SubscribeButton";
-import { FiEdit, FiShare2, FiMessageSquare } from "react-icons/fi";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-
-function AuthorProfile() {
-  const { username } = useParams();
-  const { user } = useContext(AuthContext);
-  const navigate = useNavigate();
-  const [author, setAuthor] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [media, setMedia] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("posts");
-
-  useEffect(() => {
-    async function fetchAuthorData() {
-      try {
-        const [authorRes, postsRes] = await Promise.all([
-          axios.get(`http://localhost:3000/author/${username}`),
-          axios.get(`http://localhost:3000/author/${username}/posts`),
-        ]);
-        setAuthor(authorRes.data);
-        const allPosts = postsRes.data;
-        setPosts(allPosts.filter((post) => post.type === "text"));
-        setMedia(allPosts.filter((post) => post.type === "media"));
-      } catch (err) {
-        console.error("Fetch author data error:", err);
-        toast.error("Не удалось загрузить данные автора");
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchAuthorData();
-  }, [username]);
-
-  const handleStartChat = async () => {
-    if (!user) {
-      toast.error("Войдите, чтобы начать чат");
-      return;
-    }
-    try {
-      const response = await axios.post(
-        "http://localhost:3000/messages/start",
-        { recipientUsername: username },
-        { headers: { Authorization: `Bearer ${user.token}` } }
-      );
-      navigate(`/messages/${response.data.chatId}`);
-    } catch (err) {
-      console.error("Start chat error:", err);
-      toast.error(err.response?.data?.error || "Не удалось начать чат");
-    }
-  };
-
-  if (isLoading) {
-    return <div className="spinner-container"><div className="spinner"></div></div>;
-  }
-
-  if (!author) {
-    return <p>Автор не найден</p>;
-  }
-
-  const isOwnProfile = user && user.username === username;
-
-  return (
-    <HelmetProvider>
-      <div className="author-profile-container">
-        <Helmet>
-          <title>{author.authorNickname || username} - CryptoAuthors</title>
-          <meta
-            name="description"
-            content={`Профиль ${author.authorNickname || username} на CryptoAuthors.`}
-          />
-        </Helmet>
-        <div className="author-profile-header">
-          <div className="author-cover">
-            <img
-              src={author.coverPhoto || "https://via.placeholder.com/1200x200"}
-              alt="Cover"
-              className="cover-photo"
-            />
-            <div className="cover-overlay">
-              <h1 className="cover-nickname">{author.authorNickname || username}</h1>
-              <p className="cover-subscribers">Подписчиков: {author.subscribers?.length || 0}</p>
-            </div>
-          </div>
-          <div className="author-avatar-section">
-            <div className="author-avatar">
-              <img
-                src={author.avatarUrl || "https://via.placeholder.com/120"}
-                alt="Avatar"
-              />
-            </div>
-            <div className="author-actions">
-              {isOwnProfile ? (
-                <button
-                  className="edit-profile-button"
-                  onClick={() => navigate("/settings")}
-                >
-                  <FiEdit /> Редактировать профиль
-                </button>
-              ) : (
-                <>
-                  <SubscribeButton
-                    authorUsername={username}
-                    subscriptionPrice={author.subscriptionPrice || 5}
-                  />
-                  <button className="message-button" onClick={handleStartChat}>
-                    <FiMessageSquare /> Написать
-                  </button>
-                </>
-              )}
-              <button
-                className="share-profile-button"
-                onClick={() => {
-                  navigator.clipboard.writeText(window.location.href);
-                  toast.success("Ссылка скопирована!");
-                }}
-              >
-                <FiShare2 /> Поделиться
-              </button>
-            </div>
-          </div>
-        </div>
-        <div className="author-about-section">
-          <h3>О себе</h3>
-          <p>{author.about || "Информация отсутствует"}</p>
-          {author.socialLinks?.length > 0 && (
-            <div className="social-links">
-              <h4>Социальные сети</h4>
-              <ul>
-                {author.socialLinks.map((link, index) => (
-                  <li key={index}>
-                    <a href={link} target="_blank" rel="noopener noreferrer">
-                      {link}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-        <div className="content-tabs">
-          <button
-            className={`tab-button ${activeTab === "posts" ? "active" : ""}`}
-            onClick={() => setActiveTab("posts")}
-          >
-            Посты
-          </button>
-          <button
-            className={`tab-button ${activeTab === "media" ? "active" : ""}`}
-            onClick={() => setActiveTab("media")}
-          >
-            Медиа
-          </button>
-        </div>
-        {activeTab === "posts" ? (
-          posts.length ? (
-            <div className="post-list">
-              {posts.map((post) => (
-                <Post key={post._id} post={post} />
-              ))}
-            </div>
-          ) : (
-            <p>Посты отсутствуют</p>
-          )
-        ) : media.length ? (
-          <div className="media-list">
-            {media.map((post) => (
-              <Media key={post._id} post={post} />
-            ))}
-          </div>
-        ) : (
-          <p>Медиа отсутствуют</p>
-        )}
-        <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
-      </div>
-    </HelmetProvider>
-  );
-}
-
-export default AuthorProfile;
-
-User.js BACK:
-const mongoose = require("mongoose");
-
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: { type: String, default: "viewer" },
-  authorNickname: { type: String },
-  subscribers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-  about: { type: String, default: "" },
-  socialLinks: [{ type: String }],
-  avatarUrl: { type: String, default: "" },
-  coverPhoto: { type: String, default: "" },
-});
-
-module.exports = mongoose.model("User", userSchema);
-
-
-
-
