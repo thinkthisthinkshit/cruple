@@ -1,4 +1,17 @@
 AuthorProfile.js:
+import React, { useState, useEffect, useContext, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import axios from "axios";
+import { Helmet, HelmetProvider } from "react-helmet-async";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import DepositModal from "./DepositModal";
+import SubscribeButton from "./SubscribeButton";
+import Post from "./Post";
+import Media from "./Media";
+import { AuthContext } from "../App";
+import { FiEdit, FiLink, FiShare2, FiLogIn, FiMessageSquare } from "react-icons/fi";
+
 function AuthorProfile() {
   const { username } = useParams();
   const { user } = useContext(AuthContext);
@@ -338,7 +351,6 @@ function AuthorProfile() {
 }
 
 export default AuthorProfile;
-
 
 Messages.js:
 import React, { useState, useEffect, useContext } from "react";
