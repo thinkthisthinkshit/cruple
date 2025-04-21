@@ -91,10 +91,15 @@ function AuthorProfile() {
       navigate("/login");
       return;
     }
+    if (!user.token) {
+      toast.error("Ошибка авторизации. Пожалуйста, войдите снова");
+      navigate("/login");
+      return;
+    }
     try {
       const response = await axios.post(
         "http://localhost:3000/messages/start",
-        { username },
+        { username, text: "Привет!" }, // Добавляем начальное сообщение
         { headers: { Authorization: `Bearer ${user.token}` } }
       );
       console.log("Chat started:", response.data);
