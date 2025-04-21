@@ -148,6 +148,10 @@ app.get("/messages", authMiddleware, async (req, res) => {
 // Получить сообщения чата
 app.get("/messages/:chatId", authMiddleware, async (req, res) => {
   try {
+    const [user1, user2] = req.params.chatId.split("_");
+    if (![user1, user2].includes(req.user.username)) {
+      return res.status(403).json({ error: "Недостаточно прав" });
+    }
     const messages = await Message.find({ chatId: req.params.chatId }).sort({
       timestamp: 1,
     });
@@ -232,11 +236,6 @@ app.post("/messages/start", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Нельзя начать чат с собой" });
     }
     const chatId = generateChatId(req.user.username, username);
-    const existingMessages = await Message.findOne({ chatId });
-    if (!existingMessages) {
-      // Чат создаётся без начального сообщения
-      console.log(`Chat initiated: ${chatId}`);
-    }
     res.json({ chatId });
   } catch (err) {
     console.error("Start chat error:", err);
@@ -728,3 +727,621 @@ async function createTestMediaPost() {
 createTestMediaPost();
 
 server.listen(3000, () => console.log("Server running on port 3000"));
+
+AuthorProfile.js:
+import React, { useState, useEffect, useContext, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import axios from "axios";
+import { Helmet, HelmetProvider } from "react-helmet-async";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import DepositModal from "./DepositModal";
+import SubscribeButton from "./SubscribeButton";
+import Post from "./Post";
+import Media from "./Media";
+import { AuthContext } from "../App";
+import { FiEdit, FiLink, FiShare2, FiLogIn, FiMessageSquare } from "react-icons/fi";
+
+function AuthorProfile() {
+  const { username } = useParams();
+  const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
+  const [author, setAuthor] = useState(null);
+  const [authorPosts, setAuthorPosts] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [qrData, setQrData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("posts");
+  const [error, setError] = useState(null);
+
+  const fetchAuthor = useCallback(async () => {
+    try {
+      const res = await axios.get(`http://localhost:3000/users/${username}`);
+      console.log("Author fetched:", res.data);
+      setAuthor(res.data);
+      setError(null);
+    } catch (err) {
+      console.error("Fetch author error:", err);
+      setError(err.response?.data?.error || "Не удалось загрузить автора");
+      toast.error(err.response?.data?.error || "Не удалось загрузить автора");
+    }
+  }, [username]);
+
+  const fetchPosts = useCallback(async () => {
+    try {
+      const res = await axios.get(`http://localhost:3000/posts/${username}`);
+      console.log("Posts fetched:", res.data);
+      setAuthorPosts(res.data);
+    } catch (err) {
+      console.error("Fetch posts error:", err);
+      toast.error("Не удалось загрузить посты");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [username]);
+
+  useEffect(() => {
+    setIsLoading(true);
+    fetchAuthor();
+    if (user) fetchPosts();
+    else setIsLoading(false);
+  }, [fetchAuthor, fetchPosts, user]);
+
+  const handleDonate = async () => {
+    if (!user) {
+      toast.error("Войдите, чтобы поддержать автора");
+      navigate("/login");
+      return;
+    }
+    try {
+      const res = await axios.get(`http://localhost:3000/generate/${username}/qr`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      console.log("QR data fetched:", res.data);
+      setQrData(res.data);
+      setShowModal(true);
+    } catch (err) {
+      console.error("Ошибка при генерации QR-кода:", err);
+      toast.error("Не удалось сгенерировать адрес");
+    }
+  };
+
+  const handleEditProfile = () => {
+    navigate("/settings");
+  };
+
+  const handleShareProfile = () => {
+    const profileUrl = `${window.location.origin}/author/${username}`;
+    navigator.clipboard.writeText(profileUrl);
+    toast.success("Ссылка на профиль скопирована!");
+  };
+
+  const handleStartChat = async () => {
+    if (!user) {
+      toast.error("Войдите, чтобы начать чат");
+      navigate("/login");
+      return;
+    }
+    if (!user.token) {
+      console.error("No token available for user:", user);
+      toast.error("Ошибка авторизации. Пожалуйста, войдите снова");
+      navigate("/login");
+      return;
+    }
+    console.log("Starting chat with:", username);
+    try {
+      const response = await axios.post(
+        "http://localhost:3000/messages/start",
+        { username },
+        { headers: { Authorization: `Bearer ${user.token}` } }
+      );
+      console.log("Chat initiated:", response.data);
+      navigate(`/messages?startChatWith=${username}`);
+    } catch (err) {
+      console.error("Start chat error:", err);
+      toast.error(err.response?.data?.error || "Ошибка начала чата");
+    }
+  };
+
+  if (error) {
+    return (
+      <HelmetProvider>
+        <div className="author-profile-container">
+          <Helmet>
+            <title>Ошибка - CryptoAuthors</title>
+            <meta name="description" content="Ошибка загрузки профиля автора." />
+          </Helmet>
+          <div className="error-message">
+            <h2>Ошибка</h2>
+            <p>{error}</p>
+            <button onClick={() => navigate("/")}>Вернуться на главную</button>
+          </div>
+          <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
+        </div>
+      </HelmetProvider>
+    );
+  }
+
+  if (!author) {
+    return (
+      <HelmetProvider>
+        <div className="author-profile-container">
+          <Helmet>
+            <title>Загрузка - CryptoAuthors</title>
+            <meta name="description" content="Загрузка профиля автора..." />
+          </Helmet>
+          <div className="spinner-container">
+            <div className="spinner"></div>
+          </div>
+          <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
+        </div>
+      </HelmetProvider>
+    );
+  }
+
+  const isOwnProfile = user && user.username === username;
+
+  return (
+    <HelmetProvider>
+      <div className="author-profile-container">
+        <Helmet>
+          <title>
+            {activeTab === "posts"
+              ? `Контент ${author.authorNickname || username} - CryptoAuthors`
+              : `Галерея ${author.authorNickname || username} - CryptoAuthors`}
+          </title>
+          <meta
+            name="description"
+            content={
+              activeTab === "posts"
+                ? `Просмотрите контент автора ${author.authorNickname || username} и поддержите их донатом в BTC.`
+                : `Просмотрите медиа-галерею автора ${author.authorNickname || username} на CryptoAuthors.`
+            }
+          />
+        </Helmet>
+        <div className="author-profile-header">
+          <div className="author-cover">
+            <img
+              src={author.coverPhoto || "/default-cover.jpg"}
+              alt="Author Cover"
+              className="cover-photo"
+            />
+            <div className="cover-overlay">
+              <h2 className="cover-nickname">{author.authorNickname || username}</h2>
+              <p className="cover-subscribers">{author.subscribers || 0} подписчиков</p>
+            </div>
+          </div>
+          <div className="author-avatar-section">
+            <div className="author-avatar">
+              <img src={author.avatarUrl || "/logo.png"} alt="Author Avatar" />
+            </div>
+            <h2 className="author-nickname">{author.authorNickname || username}</h2>
+            <div className="author-actions">
+              {user && (
+                <button className="share-profile-button" onClick={handleShareProfile}>
+                  <FiShare2 /> Поделиться
+                </button>
+              )}
+              {!isOwnProfile && user && (
+                <button className="message-button" onClick={handleStartChat}>
+                  <FiMessageSquare /> Сообщение
+                </button>
+              )}
+              {isOwnProfile && (
+                <button className="edit-profile-button" onClick={handleEditProfile}>
+                  <FiEdit /> Редактировать профиль
+                </button>
+              )}
+            </div>
+          </div>
+          {isOwnProfile && user.role === "author" && (
+            <button className="content-button" onClick={() => navigate("/content")}>
+              <FiEdit /> Создать контент
+            </button>
+          )}
+        </div>
+        {user ? (
+          <>
+            {!isOwnProfile && (
+              <div className="subscribe-section">
+                <SubscribeButton
+                  authorUsername={username}
+                  subscriptionPrice={author.subscriptionPrice || 5}
+                />
+              </div>
+            )}
+            <div className="author-about-section">
+              <h3>О себе</h3>
+              <p>{author.about || "Автор пока не добавил информацию о себе."}</p>
+              {author.socialLinks && author.socialLinks.length > 0 && (
+                <div className="social-links">
+                  <h4>Социальные сети</h4>
+                  <ul>
+                    {author.socialLinks.slice(0, 5).map((link, index) => (
+                      <li key={index}>
+                        <a href={link} target="_blank" rel="noopener noreferrer">
+                          <FiLink /> {link}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="donate-section">
+              <button
+                className="donate-button"
+                onClick={handleDonate}
+                disabled={!user}
+                title={!user ? "Войдите, чтобы поддержать" : "Поддержать автора (QR)"}
+              >
+                Поддержать автора (QR)
+              </button>
+            </div>
+            <div className="content-tabs">
+              <button
+                className={`tab-button ${activeTab === "posts" ? "active" : ""}`}
+                onClick={() => setActiveTab("posts")}
+              >
+                Контент
+              </button>
+              <button
+                className={`tab-button ${activeTab === "media" ? "active" : ""}`}
+                onClick={() => setActiveTab("media")}
+              >
+                Галерея
+              </button>
+            </div>
+            {activeTab === "posts" ? (
+              <>
+                {isLoading ? (
+                  <div className="skeleton-list">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="skeleton skeleton-post"></div>
+                    ))}
+                  </div>
+                ) : authorPosts.length ? (
+                  <ul className="post-list">
+                    {authorPosts.map((post) => (
+                      <li key={post._id}>
+                        {post.type === "media" ? <Media post={post} /> : <Post post={post} />}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>У этого автора пока нет контента</p>
+                )}
+              </>
+            ) : (
+              <>
+                {isLoading ? (
+                  <div className="skeleton-list">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="skeleton skeleton-post"></div>
+                    ))}
+                  </div>
+                ) : authorPosts.filter((post) => post.type === "media").length ? (
+                  <div className="media-gallery">
+                    {authorPosts
+                      .filter((post) => post.type === "media")
+                      .map((post) => (
+                        <div key={post._id} className="media-gallery-item">
+                          {post.mediaUrl.endsWith(".mp4") ? (
+                            <video
+                              src={post.mediaUrl}
+                              controls
+                              className="media-gallery-content"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <img
+                              src={post.mediaUrl}
+                              alt="Media"
+                              className="media-gallery-content"
+                              loading="lazy"
+                            />
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p>У этого автора пока нет медиа</p>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <div className="guest-message">
+            <p>Войдите, чтобы увидеть контент и поддержать автора.</p>
+            <button onClick={() => navigate("/login")} className="login-button">
+              <FiLogIn /> Войти
+            </button>
+          </div>
+        )}
+        {showModal && qrData && (
+          <DepositModal qrData={qrData} onClose={() => setShowModal(false)} />
+        )}
+        <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
+      </div>
+    </HelmetProvider>
+  );
+}
+
+export default AuthorProfile;
+
+
+Messages.js:
+import React, { useState, useEffect, useContext } from "react";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
+import axios from "axios";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import { AuthContext } from "../App";
+import Chat from "./Chat";
+
+function Messages() {
+  const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [chats, setChats] = useState([]);
+  const [selectedChatId, setSelectedChatId] = useState(null);
+  const [tempChat, setTempChat] = useState(null);
+
+  const fetchChats = async () => {
+    try {
+      const response = await axios.get("http://localhost:3000/messages", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      console.log("Chats fetched:", response.data);
+      setChats(response.data);
+    } catch (err) {
+      console.error("Fetch chats error:", err);
+      toast.error(err.response?.data?.error || "Ошибка загрузки чатов");
+    }
+  };
+
+  const generateChatId = (user1, user2) => {
+    return [user1, user2].sort().join("_");
+  };
+
+  useEffect(() => {
+    if (!user) {
+      toast.error("Войдите, чтобы просматривать чаты");
+      navigate("/login");
+      return;
+    }
+    fetchChats();
+
+    const params = new URLSearchParams(location.search);
+    const startChatWith = params.get("startChatWith");
+    if (startChatWith) {
+      const chatId = generateChatId(user.username, startChatWith);
+      console.log("Starting chat with:", startChatWith, "Chat ID:", chatId);
+      setTempChat({ id: chatId, with: startChatWith, lastMessage: null, timestamp: new Date() });
+      setSelectedChatId(chatId);
+    }
+  }, [user, location, navigate]);
+
+  const handleSelectChat = (chatId) => {
+    setSelectedChatId(chatId);
+    setTempChat(null);
+    navigate(`/messages`);
+  };
+
+  return (
+    <div className="messages-container">
+      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
+      <div className="messages-sidebar">
+        <h2>Чаты</h2>
+        <ul className="chat-list">
+          {tempChat && (
+            <li
+              className={`chat-item ${selectedChatId === tempChat.id ? "active" : ""}`}
+              onClick={() => handleSelectChat(tempChat.id)}
+            >
+              <div className="chat-info">
+                <span className="chat-with">{tempChat.with}</span>
+                <span className="chat-preview">Новый чат</span>
+              </div>
+            </li>
+          )}
+          {chats.map((chat) => (
+            <li
+              key={chat.id}
+              className={`chat-item ${selectedChatId === chat.id ? "active" : ""}`}
+              onClick={() => handleSelectChat(chat.id)}
+            >
+              <div className="chat-info">
+                <span className="chat-with">{chat.with}</span>
+                <span className="chat-preview">{chat.lastMessage || "Нет сообщений"}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {selectedChatId && (
+        <div className="chat-container">
+          <Chat
+            chatId={selectedChatId}
+            recipient={tempChat ? tempChat.with : chats.find((c) => c.id === selectedChatId)?.with}
+            onMessageSent={() => fetchChats()}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Messages;
+
+Chat.js:
+import React, { useState, useEffect, useContext } from "react";
+import axios from "axios";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import { AuthContext } from "../App";
+
+function Chat({ chatId, recipient, onMessageSent }) {
+  const { user } = useContext(AuthContext);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState("");
+
+  const fetchMessages = async () => {
+    try {
+      const response = await axios.get(`http://localhost:3000/messages/${chatId}`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      console.log("Messages fetched:", response.data);
+      setMessages(response.data);
+    } catch (err) {
+      console.error("Fetch messages error:", err);
+      toast.error(err.response?.data?.error || "Ошибка загрузки сообщений");
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!newMessage.trim()) {
+      toast.error("Введите сообщение");
+      return;
+    }
+    try {
+      const response = await axios.post(
+        `http://localhost:3000/messages/${chatId}`,
+        { text: newMessage },
+        { headers: { Authorization: `Bearer ${user.token}` } }
+      );
+      console.log("Message sent:", response.data);
+      setMessages([...messages, response.data]);
+      setNewMessage("");
+      onMessageSent();
+    } catch (err) {
+      console.error("Send message error:", err);
+      toast.error(err.response?.data?.error || "Ошибка отправки сообщения");
+    }
+  };
+
+  useEffect(() => {
+    if (user && chatId) {
+      fetchMessages();
+    }
+  }, [chatId, user]);
+
+  return (
+    <div className="chat-container">
+      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
+      <div className="chat-header">
+        <h3>Чат с {recipient}</h3>
+      </div>
+      <div className="chat-messages">
+        {messages.length ? (
+          messages.map((msg, index) => (
+            <div
+              key={index}
+              className={`message ${msg.from === user.username ? "sent" : "received"}`}
+            >
+              <p>{msg.text}</p>
+              <span className="timestamp">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+            </div>
+          ))
+        ) : (
+          <p>Нет сообщений</p>
+        )}
+      </div>
+      <div className="chat-input">
+        <input
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder="Введите сообщение..."
+        />
+        <button onClick={sendMessage}>Отправить</button>
+      </div>
+    </div>
+  );
+}
+
+export default Chat;
+
+
+.messages-container {
+  display: flex;
+  height: 100vh;
+}
+.messages-sidebar {
+  width: 300px;
+  border-right: 1px solid #ccc;
+  padding: 20px;
+}
+.chat-list {
+  list-style: none;
+  padding: 0;
+}
+.chat-item {
+  padding: 10px;
+  cursor: pointer;
+}
+.chat-item.active {
+  background: #f0f0f0;
+}
+.chat-info {
+  display: flex;
+  flex-direction: column;
+}
+.chat-with {
+  font-weight: bold;
+}
+.chat-preview {
+  color: #666;
+  font-size: 0.9em;
+}
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.chat-header {
+  padding: 10px;
+  border-bottom: 1px solid #ccc;
+}
+.chat-messages {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+.message {
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 5px;
+}
+.message.sent {
+  background: #007bff;
+  color: white;
+  margin-left: 20%;
+}
+.message.received {
+  background: #e9ecef;
+  margin-right: 20%;
+}
+.timestamp {
+  font-size: 0.8em;
+  color: #999;
+}
+.chat-input {
+  display: flex;
+  padding: 10px;
+  border-top: 1px solid #ccc;
+}
+.chat-input input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+.chat-input button {
+  margin-left: 10px;
+  padding: 10px 20px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+}
