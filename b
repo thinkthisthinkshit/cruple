@@ -12,6 +12,10 @@ const QRCode = require("qrcode");
 const User = require("./models/User");
 const Post = require("./models/Post");
 const Message = require("./models/Message");
+const bitcoin = require("bitcoinjs-lib");
+const bip32 = require("bip32");
+const bip39 = require("bip39");
+const axios = require("axios");
 
 // Модель Notification
 const NotificationSchema = new mongoose.Schema({
@@ -91,6 +95,36 @@ const adminMiddleware = (req, res, next) => {
   next();
 };
 
+// HD-Wallet настройки
+const seedPhrase = process.env.SEED_PHRASE || bip39.generateMnemonic(); // В продакшене хранить в HSM
+const network = bitcoin.networks.testnet; // Используем testnet для разработки
+const seed = bip39.mnemonicToSeedSync(seedPhrase);
+const root = bip32.fromSeed(seed, network);
+
+// Генерация Bitcoin-адреса для пользователя
+const generateBitcoinAddress = (userIndex) => {
+  const path = `m/44'/1'/0'/0/${userIndex}`; // BIP-44 для testnet
+  const child = root.derivePath(path);
+  const { address } = bitcoin.payments.p2pkh({
+    pubkey: child.publicKey,
+    network,
+  });
+  return address;
+};
+
+// Конвертация BTC в USD через CoinGecko
+const getBtcPrice = async () => {
+  try {
+    const response = await axios.get(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+    );
+    return response.data.bitcoin.usd;
+  } catch (err) {
+    console.error("Ошибка получения цены BTC:", err);
+    return 60000; // Фallback-цена
+  }
+};
+
 // Проверка подписки
 const checkSubscription = async (userId, authorUsername) => {
   const author = await User.findOne({ username: authorUsername });
@@ -115,6 +149,50 @@ io.on("connection", (socket) => {
     socket.join(userId);
   });
   socket.on("disconnect", () => {});
+});
+
+// Эндпоинт для получения адреса для депозита
+app.get("/deposit/address", authMiddleware, async (req, res) => {
+  try {
+    let user = await User.findById(req.user.id);
+    if (!user.bitcoinAddress) {
+      const userIndex = (await User.countDocuments()) + 1; // Уникальный индекс
+      const address = generateBitcoinAddress(userIndex);
+      user.bitcoinAddress = address;
+      await user.save();
+    }
+    const qrCode = await QRCode.toDataURL(user.bitcoinAddress);
+    res.json({ address: user.bitcoinAddress, qrCode });
+  } catch (err) {
+    res.status(500).json({ error: "Ошибка генерации адреса" });
+  }
+});
+
+// Webhook для BlockCypher (обрабатываем входящие транзакции)
+app.post("/webhook/deposit", async (req, res) => {
+  const { hash, outputs } = req.body;
+  try {
+    for (const output of outputs) {
+      const user = await User.findOne({ bitcoinAddress: output.addresses[0] });
+      if (user) {
+        const btcAmount = output.value / 1e8; // Конвертация сатоши в BTC
+        const btcPrice = await getBtcPrice();
+        const usdAmount = btcAmount * btcPrice;
+        user.balance += usdAmount;
+        await user.save();
+        io.to(user._id.toString()).emit("depositUpdate", {
+          username: user.username,
+          amount: usdAmount,
+          txHash: hash,
+        });
+        break;
+      }
+    }
+    res.status(200).send("OK");
+  } catch (err) {
+    console.error("Webhook error:", err);
+    res.status(500).send("Error");
+  }
 });
 
 // Эндпоинты уведомлений
@@ -748,7 +826,7 @@ app.get("/generate/:username/qr", authMiddleware, async (req, res) => {
   try {
     const user = await User.findOne({ username: req.params.username });
     if (!user) return res.status(404).json({ error: "Пользователь не найден" });
-    const address = user.address || `bitcoin:${req.params.username}_address`;
+    const address = user.bitcoinAddress || `bitcoin:${req.params.username}_address`;
     const qr = await QRCode.toDataURL(address);
     res.json({ qr, address });
   } catch (err) {
@@ -856,1082 +934,79 @@ server.listen(3000, () => console.log("Server running on port 3000"));
 
 
 
-App.js:
-import React, { createContext, useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import Navbar from "./components/Navbar";
-import Home from "./components/Home";
-import AuthorProfile from "./components/AuthorProfile";
-import Content from "./components/Content";
-import Deposit from "./components/Deposit";
-import Settings from "./components/Settings";
-import Login from "./components/Login";
-import Messages from "./components/Messages";
-import Chat from "./components/Chat";
-import Search from "./components/Search";
-import Notifications from "./components/Notifications";
-import Feed from "./components/Feed";
-import PostPage from "./components/PostPage";
-import Favorites from "./components/Favorites";
-import { ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import "./App.css";
+Models/USER.JS:
+const mongoose = require("mongoose");
 
-export const AuthContext = createContext();
+const UserSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, default: "viewer" },
+  authorNickname: { type: String },
+  subscriptionPrice: { type: Number, default: 0 },
+  subscribers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  balance: { type: Number, default: 0 },
+  favorites: [{ type: String }],
+  avatarUrl: { type: String },
+  coverPhoto: { type: String },
+  about: { type: String },
+  socialLinks: { type: Object },
+  bitcoinAddress: { type: String }, // Новый адрес для депозитов
+});
 
-function App() {
-  const [user, setUser] = useState(null);
-  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
-  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
-
-  useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        if (parsedUser && parsedUser.token) {
-          setUser(parsedUser);
-        } else {
-          localStorage.removeItem("user");
-        }
-      } catch (err) {
-        console.error("Error parsing stored user:", err);
-        localStorage.removeItem("user");
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const interceptor = axios.interceptors.request.use((config) => {
-      if (user?.token) {
-        config.headers.Authorization = `Bearer ${user.token}`;
-      }
-      return config;
-    });
-    return () => {
-      axios.interceptors.request.eject(interceptor);
-    };
-  }, [user]);
-
-  useEffect(() => {
-    if (user) {
-      const fetchUnread = async () => {
-        try {
-          const messagesRes = await axios.get("http://localhost:3000/messages/unread");
-          setUnreadMessagesCount(messagesRes.data.unreadMessagesCount);
-          const notificationsRes = await axios.get("http://localhost:3000/notifications/unread");
-          setUnreadNotificationsCount(notificationsRes.data.unreadCount);
-        } catch (err) {
-          console.error("Fetch unread error:", err);
-        }
-      };
-      fetchUnread();
-      const interval = setInterval(fetchUnread, 30000);
-      return () => clearInterval(interval);
-    } else {
-      setUnreadMessagesCount(0);
-      setUnreadNotificationsCount(0);
-    }
-  }, [user]);
-
-  return (
-    <AuthContext.Provider
-      value={{ user, setUser, unreadMessagesCount, unreadNotificationsCount }}
-    >
-      <Router>
-        <Navbar />
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/author/:username" element={<AuthorProfile />} />
-          <Route path="/content" element={<Content />} />
-          <Route path="/deposit" element={<Deposit />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/messages" element={<Messages />} />
-          <Route path="/messages/:chatId" element={<Chat />} />
-          <Route path="/search" element={<Search />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/feed" element={<Feed />} />
-          <Route path="/post/:postId" element={<PostPage />} />
-          <Route path="/favorites" element={<Favorites />} />
-        </Routes>
-        <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
-      </Router>
-    </AuthContext.Provider>
-  );
-}
-
-export default App;
+module.exports = mongoose.model("User", UserSchema);
 
 
 
 
 
-Navbar.js:
-import React, { useContext, useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import axios from "axios";
-import { AuthContext } from "../App";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import {
-  FiHome,
-  FiUser,
-  FiEdit,
-  FiLogIn,
-  FiLogOut,
-  FiFeather,
-  FiSettings,
-  FiDollarSign,
-  FiSearch,
-  FiMessageSquare,
-  FiBell,
-  FiMenu,
-  FiStar,
-} from "react-icons/fi";
-import io from "socket.io-client";
-
-const socket = io("http://localhost:3000");
-
-function Navbar() {
-  const { user, setUser, unreadMessagesCount, unreadNotificationsCount } = useContext(AuthContext);
-  const navigate = useNavigate();
-  const [showAuthorModal, setShowAuthorModal] = useState(false);
-  const [authorNickname, setAuthorNickname] = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(false);
-  const dropdownRef = useRef(null);
-  const touchStartX = useRef(null);
-
-  useEffect(() => {
-    if (user && user.username) {
-      socket.emit("joinChat", user.username);
-      socket.emit("joinNotifications", user.id);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    socket.on("newMessage", (message) => {
-      if (user && message.to === user.username) {
-        toast.info(`Новое сообщение от ${message.from}`);
-      }
-    });
-
-    socket.on("newNotification", (notification) => {
-      if (user && notification.userId === user.id) {
-        toast.info(`Новое уведомление от ${notification.fromUsername}`);
-      }
-    });
-
-    return () => {
-      socket.off("newMessage");
-      socket.off("newNotification");
-    };
-  }, [user]);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowDropdown(false);
-        setShowSidebar(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleTouchStart = (e) => {
-      touchStartX.current = e.touches[0].clientX;
-    };
-    const handleTouchMove = (e) => {
-      if (touchStartX.current === null) return;
-      const touchEndX = e.touches[0].clientX;
-      const diffX = touchEndX - touchStartX.current;
-      if (diffX > 50 && window.innerWidth <= 768 && !showSidebar) {
-        setShowSidebar(true);
-        touchStartX.current = null;
-      } else if (diffX < -50 && window.innerWidth <= 768 && showSidebar) {
-        setShowSidebar(false);
-        touchStartX.current = null;
-      }
-    };
-    document.addEventListener("touchstart", handleTouchStart);
-    document.addEventListener("touchmove", handleTouchMove);
-    return () => {
-      document.removeEventListener("touchstart", handleTouchStart);
-      document.removeEventListener("touchmove", handleTouchMove);
-    };
-  }, [showSidebar]);
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem("user");
-    setShowDropdown(false);
-    setShowSidebar(false);
-    navigate("/login");
-  };
-
-  const handleBecomeAuthor = async (e) => {
-    e.preventDefault();
-    if (!authorNickname) {
-      toast.error("Введите никнейм");
-      return;
-    }
-    try {
-      const response = await axios.post("http://localhost:3000/become-author", {
-        authorNickname,
-      });
-      const newUser = {
-        username: response.data.username,
-        token: response.data.token,
-        role: response.data.role,
-        authorNickname: response.data.authorNickname,
-      };
-      setUser(newUser);
-      localStorage.setItem("user", JSON.stringify(newUser));
-      toast.success("Вы стали автором!");
-      setShowAuthorModal(false);
-      setAuthorNickname("");
-      navigate("/content");
-    } catch (err) {
-      toast.error(err.response?.data?.error || "Ошибка");
-    }
-  };
-
-  const toggleDropdown = () => {
-    setShowDropdown((prev) => !prev);
-  };
-
-  const toggleSidebar = () => {
-    setShowSidebar((prev) => !prev);
-    setShowDropdown(false);
-  };
-
-  return (
-    <>
-      <nav className="navbar">
-        {user && (
-          <>
-            <button
-              className="nav-home-button"
-              onClick={() => navigate("/")}
-              title="Главная"
-            >
-              <FiHome />
-            </button>
-            <button className="nav-menu-button" onClick={toggleSidebar} title="Меню">
-              <FiMenu />
-            </button>
-          </>
-        )}
-        <div
-          className="nav-logo"
-          onClick={window.innerWidth > 768 ? () => navigate("/") : undefined}
-        >
-          CryptoAuthors
-        </div>
-        {user && (
-          <div className="nav-actions">
-            <button
-              className="nav-search-button"
-              onClick={() => navigate("/search")}
-              title="Поиск"
-            >
-              <FiSearch />
-            </button>
-            <button
-              className="nav-notifications-button"
-              onClick={() => navigate("/notifications")}
-              title="Уведомления"
-            >
-              <FiBell />
-              {unreadNotificationsCount > 0 && (
-                <span className="badge">
-                  {unreadNotificationsCount > 20 ? "20+" : unreadNotificationsCount}
-                </span>
-              )}
-            </button>
-            <button
-              className="nav-messages-button"
-              onClick={() => navigate("/messages")}
-              title="Сообщения"
-            >
-              <FiMessageSquare />
-              {unreadMessagesCount > 0 && (
-                <span className="badge">
-                  {unreadMessagesCount > 20 ? "20+" : unreadMessagesCount}
-                </span>
-              )}
-            </button>
-            <button
-              className="nav-favorites-button"
-              onClick={() => navigate("/favorites")}
-              title="Избранное"
-            >
-              <FiStar />
-            </button>
-          </div>
-        )}
-        <div className="nav-header">
-          {user && (
-            <div
-              className="user-info"
-              onClick={() => {
-                if (window.innerWidth > 768) {
-                  toggleDropdown();
-                } else {
-                  navigate(`/author/${user.username}`);
-                }
-              }}
-              ref={dropdownRef}
-            >
-              <FiUser />
-              <span>{user.username}</span>
-              {showDropdown && (
-                <div className="dropdown-menu">
-                  <button
-                    className="dropdown-item"
-                    onClick={() => {
-                      navigate("/");
-                      setShowDropdown(false);
-                    }}
-                  >
-                    <FiHome /> Главная
-                  </button>
-                  <button
-                    className="dropdown-item"
-                    onClick={() => {
-                      navigate(`/author/${user.username}`);
-                      setShowDropdown(false);
-                    }}
-                  >
-                    <FiUser /> Моя страница
-                  </button>
-                  <button
-                    className="dropdown-item"
-                    onClick={() => {
-                      navigate("/settings");
-                      setShowDropdown(false);
-                    }}
-                  >
-                    <FiSettings /> Настройки
-                  </button>
-                  <button
-                    className="dropdown-item"
-                    onClick={() => {
-                      navigate("/deposit");
-                      setShowDropdown(false);
-                    }}
-                  >
-                    <FiDollarSign /> Монетизация
-                  </button>
-                  {user.role === "viewer" && (
-                    <button
-                      className="dropdown-item"
-                      onClick={() => {
-                        setShowAuthorModal(true);
-                        setShowDropdown(false);
-                      }}
-                    >
-                      <FiFeather /> Стать создателем
-                    </button>
-                  )}
-                  <button className="dropdown-item" onClick={handleLogout}>
-                    <FiLogOut /> Выйти
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {!user && (
-            <button className="login-button" onClick={() => navigate("/login")}>
-              <FiLogIn /> Войти
-            </button>
-          )}
-        </div>
-      </nav>
-      {user && (
-        <div className="bottom-nav">
-          <button
-            className="bottom-nav-item"
-            onClick={() => navigate("/")}
-            title="Главная"
-          >
-            <FiHome />
-          </button>
-          <button
-            className="bottom-nav-item"
-            onClick={() => navigate("/search")}
-            title="Поиск"
-          >
-            <FiSearch />
-          </button>
-          <button
-            className="bottom-nav-item pulse"
-            onClick={() => navigate("/messages")}
-            title="Сообщения"
-          >
-            <FiMessageSquare />
-            {unreadMessagesCount > 0 && (
-              <span className="badge">
-                {unreadMessagesCount > 20 ? "20+" : unreadMessagesCount}
-              </span>
-            )}
-          </button>
-          <button
-            className="bottom-nav-item pulse"
-            onClick={() => navigate("/notifications")}
-            title="Уведомления"
-          >
-            <FiBell />
-            {unreadNotificationsCount > 0 && (
-              <span className="badge">
-                {unreadNotificationsCount > 20 ? "20+" : unreadNotificationsCount}
-              </span>
-            )}
-          </button>
-        </div>
-      )}
-      <div className={`sidebar ${showSidebar ? "active" : ""}`}>
-        <div className="sidebar-links">
-          <button
-            className="sidebar-button"
-            onClick={() => {
-              navigate("/");
-              setShowSidebar(false);
-            }}
-          >
-            <FiHome /> Главная
-          </button>
-          <button
-            className="sidebar-button"
-            onClick={() => {
-              navigate(`/author/${user?.username}`);
-              setShowSidebar(false);
-            }}
-          >
-            <FiUser /> Профиль
-          </button>
-          {user?.role === "author" && (
-            <button
-              className="sidebar-button"
-              onClick={() => {
-                navigate("/content");
-                setShowSidebar(false);
-              }}
-            >
-              <FiEdit /> Контент
-            </button>
-          )}
-          <button
-            className="sidebar-button"
-            onClick={() => {
-              navigate("/favorites");
-              setShowSidebar(false);
-            }}
-          >
-            <FiStar /> Избранное
-          </button>
-          <button
-            className="sidebar-button"
-            onClick={() => {
-              navigate("/deposit");
-              setShowSidebar(false);
-            }}
-          >
-            <FiDollarSign /> Монетизация
-          </button>
-          <button
-            className="sidebar-button"
-            onClick={() => {
-              navigate("/settings");
-              setShowSidebar(false);
-            }}
-          >
-            <FiSettings /> Настройки
-          </button>
-          {user && (
-            <button className="sidebar-button" onClick={handleLogout}>
-              <FiLogOut /> Выйти
-            </button>
-          )}
-        </div>
-      </div>
-      {showAuthorModal && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <h2>Стать автором</h2>
-            <form onSubmit={handleBecomeAuthor}>
-              <input
-                type="text"
-                value={authorNickname}
-                onChange={(e) => setAuthorNickname(e.target.value)}
-                placeholder="Введите никнейм автора"
-                required
-              />
-              <div className="modal-buttons">
-                <button type="submit" className="publish-button">
-                  Подтвердить
-                </button>
-                <button
-                  type="button"
-                  className="close-button"
-                  onClick={() => setShowAuthorModal(false)}
-                >
-                  Отмена
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
-    </>
-  );
-}
-
-export default Navbar;
-
-
-
-
-
-
-
-
-Post.js:
+Deposit.js:
 import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../App";
-import LikeButton from "./LikeButton";
-import SubscribeButton from "./SubscribeButton";
-import { FiMessageSquare } from "react-icons/fi";
-import { useNavigate } from "react-router-dom";
-import axios from "axios";
-
-function Post({ post }) {
-  const { user } = useContext(AuthContext);
-  const navigate = useNavigate();
-  const [postData] = useState({
-    ...post,
-    likes: post.likes || [],
-    comments: post.comments || [],
-  });
-  const [isSubscribed, setIsSubscribed] = useState(false);
-
-  const isAuthor = user?.username === postData.username;
-
-  useEffect(() => {
-    async function checkSubscription() {
-      if (!user || isAuthor) return;
-      try {
-        const response = await axios.get(
-          `http://localhost:3000/check-subscription/${postData.username}`
-        );
-        setIsSubscribed(response.data.isSubscribed);
-      } catch (error) {
-        console.error("Ошибка проверки подписки:", error);
-      }
-    }
-    checkSubscription();
-  }, [user, postData.username, isAuthor]);
-
-  const handlePostClick = () => {
-    navigate(`/post/${postData._id}`);
-  };
-
-  return (
-    <div className="post-item" onClick={handlePostClick}>
-      {postData.mediaUrl && (
-        <div className="post-media-container">
-          {postData.mediaUrl.endsWith(".mp4") ? (
-            <video
-              src={postData.mediaUrl}
-              controls={isSubscribed || isAuthor || !user}
-              className={`post-media ${!isSubscribed && !isAuthor && user ? "blurred" : ""}`}
-              loading="lazy"
-            />
-          ) : (
-            <img
-              src={postData.mediaUrl}
-              alt="Post Media"
-              className={`post-media ${!isSubscribed && !isAuthor && user ? "blurred" : ""}`}
-              loading="lazy"
-            />
-          )}
-          {!isSubscribed && !isAuthor && user && (
-            <div className="blur-overlay">Подпишитесь, чтобы увидеть контент</div>
-          )}
-        </div>
-      )}
-      {postData.text && <p>{postData.text}</p>}
-      <div className="post-actions">
-        <LikeButton postId={postData._id} likes={postData.likes} />
-        <button
-          className="comment-button"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/post/${postData._id}`);
-          }}
-        >
-          <FiMessageSquare /> {postData.comments.length}
-        </button>
-      </div>
-      {!isAuthor && (
-        <SubscribeButton
-          authorUsername={postData.username}
-          subscriptionPrice={postData.subscriptionPrice || 5}
-        />
-      )}
-    </div>
-  );
-}
-
-export default Post;
-
-
-
-
-
-LikeButton.js:
-import React, { useState, useEffect, useContext } from "react";
-import { AuthContext } from "../App";
-import axios from "axios";
-import { FiHeart } from "react-icons/fi";
-import { toast } from "react-toastify";
-
-function LikeButton({ postId, likes }) {
-  const { user } = useContext(AuthContext);
-  const [isLiked, setIsLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(likes?.length || 0);
-
-  useEffect(() => {
-    if (user && likes) {
-      setIsLiked(likes.includes(user.id));
-      setLikeCount(likes.length);
-    }
-  }, [user, likes]);
-
-  const handleLike = async (e) => {
-    e.stopPropagation();
-    if (!user) {
-      toast.error("Войдите, чтобы поставить лайк");
-      return;
-    }
-    try {
-      const res = await axios.post(`http://localhost:3000/posts/${postId}/like`, {});
-      setIsLiked(!isLiked);
-      setLikeCount(res.data.likes.length);
-    } catch (err) {
-      toast.error(err.response?.data?.error || "Ошибка при установке лайка");
-    }
-  };
-
-  return (
-    <button
-      className={`like-button ${isLiked ? "liked" : ""}`}
-      onClick={handleLike}
-      disabled={!user}
-      title={user ? "Лайк" : "Войдите, чтобы поставить лайк"}
-    >
-      <FiHeart /> {likeCount}
-    </button>
-  );
-}
-
-export default LikeButton;
-
-
-
-
-
-
-
-
-
-CommentForm.js:
-import React, { useState, useContext } from "react";
-import { AuthContext } from "../App";
-import axios from "axios";
-import { toast } from "react-toastify";
-
-function CommentForm({ postId }) {
-  const { user } = useContext(AuthContext);
-  const [text, setText] = useState("");
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!user) {
-      toast.error("Войдите, чтобы комментировать");
-      return;
-    }
-    if (!text.trim()) {
-      toast.error("Введите текст комментария");
-      return;
-    }
-    try {
-      const response = await axios.post(`http://localhost:3000/posts/${postId}/comment`, {
-        text,
-      });
-      setText("");
-      toast.success("Комментарий добавлен");
-    } catch (error) {
-      toast.error(error.response?.data?.error || "Ошибка добавления комментария");
-    }
-  };
-
-  return (
-    <form className="comment-form" onSubmit={handleSubmit}>
-      <input
-        type="text"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Ваш комментарий..."
-        className="comment-input"
-      />
-      <button type="submit" className="comment-button">
-        Отправить
-      </button>
-    </form>
-  );
-}
-
-export default CommentForm;
-
-
-
-
-
-
-
-
-CommentList.js:
-import React, { useEffect, useState } from "react";
-import axios from "axios";
-
-function CommentList({ comments }) {
-  const [userMap, setUserMap] = useState({});
-
-  useEffect(() => {
-    async function fetchUsernames() {
-      const userIds = comments.map((comment) => comment.userId);
-      if (userIds.length === 0) return;
-      try {
-        const response = await axios.post("http://localhost:3000/users/usernames", {
-          userIds,
-        });
-        setUserMap(response.data);
-      } catch (error) {
-        console.error("Ошибка загрузки имен пользователей:", error);
-      }
-    }
-    fetchUsernames();
-  }, [comments]);
-
-  if (!comments || !Array.isArray(comments) || comments.length === 0) {
-    return <p>Комментариев пока нет</p>;
-  }
-
-  return (
-    <ul className="comment-list">
-      {comments.map((comment) => (
-        <li key={comment._id} className="comment-item">
-          <p>
-            <strong>{userMap[comment.userId] || "Загрузка..."}</strong>: {comment.text}
-          </p>
-          <span>{new Date(comment.createdAt).toLocaleString()}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-export default CommentList;
-
-
-
-
-
-
-SubscribeButton.js:
-import React, { useState, useEffect, useContext } from "react";
-import { AuthContext } from "../App";
-import { FiDollarSign } from "react-icons/fi";
 import axios from "axios";
 import { toast } from "react-toastify";
 import io from "socket.io-client";
-
-const socket = io("http://localhost:3000");
-
-function SubscribeButton({ authorUsername, subscriptionPrice }) {
-  const { user } = useContext(AuthContext);
-  const [subscribed, setSubscribed] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-
-  useEffect(() => {
-    async function checkSubscription() {
-      if (!user) return;
-      try {
-        const response = await axios.get(
-          `http://localhost:3000/check-subscription/${authorUsername}`
-        );
-        setSubscribed(response.data.isSubscribed);
-      } catch (error) {
-        console.error("Ошибка проверки подписки:", error);
-      }
-    }
-    checkSubscription();
-
-    socket.on("subscriptionUpdate", () => {
-      checkSubscription();
-    });
-
-    return () => {
-      socket.off("subscriptionUpdate");
-    };
-  }, [authorUsername, user]);
-
-  if (!user) {
-    return <span className="guest-message">Войдите, чтобы подписаться</span>;
-  }
-
-  const handleSubscribe = async () => {
-    setIsLoading(true);
-    try {
-      const response = await axios.post(
-        `http://localhost:3000/subscribe/${authorUsername}`,
-        {}
-      );
-      setSubscribed(response.data.subscribed);
-      toast.success(response.data.subscribed ? "Вы подписались!" : "Вы отписались");
-    } catch (error) {
-      toast.error(error.response?.data?.error || "Ошибка подписки");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <button
-      className={`subscribe-button ${subscribed ? "subscribed" : ""}`}
-      onClick={handleSubscribe}
-      disabled={isLoading}
-    >
-      <FiDollarSign />
-      {subscribed ? "Отписаться" : `Подписаться за $${subscriptionPrice}/мес`}
-    </button>
-  );
-}
-
-export default SubscribeButton;
-
-
-
-
-
-PostPage.js:
-import React, { useState, useEffect, useContext } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { AuthContext } from "../App";
-import LikeButton from "./LikeButton";
-import CommentForm from "./CommentForm";
-import CommentList from "./CommentList";
-import { FiArrowLeft } from "react-icons/fi";
 import { Helmet, HelmetProvider } from "react-helmet-async";
-import { ToastContainer, toast } from "react-toastify";
-import io from "socket.io-client";
 
 const socket = io("http://localhost:3000");
 
-function PostPage() {
-  const { postId } = useParams();
+function Deposit() {
   const { user } = useContext(AuthContext);
-  const navigate = useNavigate();
-  const [post, setPost] = useState(null);
-  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [address, setAddress] = useState("");
+  const [qrCode, setQrCode] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [visibleComments, setVisibleComments] = useState(5);
+  const [depositStatus, setDepositStatus] = useState(null);
 
   useEffect(() => {
-    async function fetchPost() {
+    if (!user) {
+      toast.error("Войдите, чтобы пополнить баланс");
+      return;
+    }
+
+    async function fetchDepositAddress() {
       try {
-        const res = await axios.get(`http://localhost:3000/posts/${postId}`);
-        setPost({ ...res.data, likes: res.data.likes || [], comments: res.data.comments || [] });
-        if (user && user.username !== res.data.username) {
-          const subRes = await axios.get(
-            `http://localhost:3000/check-subscription/${res.data.username}`
-          );
-          setIsSubscribed(subRes.data.isSubscribed);
-        } else {
-          setIsSubscribed(true);
-        }
+        const response = await axios.get("http://localhost:3000/deposit/address");
+        setAddress(response.data.address);
+        setQrCode(response.data.qrCode);
       } catch (err) {
-        toast.error("Не удалось загрузить пост");
+        toast.error("Ошибка получения адреса для депозита");
       } finally {
         setIsLoading(false);
       }
     }
-    fetchPost();
-
-    socket.emit("joinPost", postId);
-    socket.on("likeUpdate", ({ postId: updatedPostId, likes }) => {
-      if (updatedPostId === postId) {
-        setPost((prev) => ({ ...prev, likes }));
-      }
-    });
-    socket.on("commentUpdate", ({ postId: updatedPostId, comments }) => {
-      if (updatedPostId === postId) {
-        setPost((prev) => ({ ...prev, comments }));
-      }
-    });
-
-    return () => {
-      socket.off("likeUpdate");
-      socket.off("commentUpdate");
-    };
-  }, [postId, user]);
-
-  const handleLoadMore = () => {
-    setVisibleComments((prev) => prev + 5);
-  };
-
-  if (isLoading) {
-    return <div className="spinner-container"><div className="spinner"></div></div>;
-  }
-
-  if (!post) {
-    return <p>Пост не найден</p>;
-  }
-
-  return (
-    <HelmetProvider>
-      <div className="post-page-container">
-        <Helmet>
-          <title>Пост - CryptoAuthors</title>
-          <meta name="description" content="Просмотрите пост и комментарии на CryptoAuthors." />
-        </Helmet>
-        <div className="post-page-header">
-          <button className="back-button" onClick={() => navigate(-1)}>
-            <FiArrowLeft /> Назад
-          </button>
-        </div>
-        <div className="post-content">
-          {post.type === "media" && post.mediaUrl && (
-            <div className="post-media-container">
-              {post.mediaUrl.endsWith(".mp4") ? (
-                <video
-                  src={post.mediaUrl}
-                  controls={isSubscribed}
-                  className={`post-media ${!isSubscribed ? "blurred" : ""}`}
-                  loading="lazy"
-                />
-              ) : (
-                <img
-                  src={post.mediaUrl}
-                  alt="Post Media"
-                  className={`post-media ${!isSubscribed ? "blurred" : ""}`}
-                  loading="lazy"
-                />
-              )}
-              {!isSubscribed && (
-                <div className="blur-overlay">Подпишитесь, чтобы увидеть контент</div>
-              )}
-            </div>
-          )}
-          {post.text && <p className="post-text">{post.text}</p>}
-          <div className="post-actions">
-            <LikeButton postId={post._id} likes={post.likes} />
-            <span>Комментариев: {post.comments?.length || 0}</span>
-          </div>
-          <CommentForm postId={post._id} />
-          <CommentList comments={post.comments.slice(0, visibleComments)} />
-          {post.comments.length > visibleComments && (
-            <button className="load-more-button" onClick={handleLoadMore}>
-              Ещё
-            </button>
-          )}
-        </div>
-        <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
-      </div>
-    </HelmetProvider>
-  );
-}
-
-export default PostPage;
-
-
-
-
-
-
-
-Notifications.js:
-import React, { useState, useEffect, useContext } from "react";
-import { useNavigate } from "react-router-dom";
-import { AuthContext } from "../App";
-import axios from "axios";
-import { Helmet, HelmetProvider } from "react-helmet-async";
-import { toast } from "react-toastify";
-import io from "socket.io-client";
-
-const socket = io("http://localhost:3000");
-
-function Notifications() {
-  const { user } = useContext(AuthContext);
-  const navigate = useNavigate();
-  const [notifications, setNotifications] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    if (!user) {
-      navigate("/login");
-      return;
-    }
-
-    async function fetchNotifications() {
-      try {
-        const res = await axios.get("http://localhost:3000/notifications");
-        setNotifications(res.data);
-      } catch (err) {
-        toast.error("Не удалось загрузить уведомления");
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    fetchNotifications();
+    fetchDepositAddress();
 
     socket.emit("joinNotifications", user.id);
-    socket.on("newNotification", (notification) => {
-      setNotifications((prev) => [notification, ...prev]);
-    });
-    socket.on("notificationsRead", () => {
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    socket.on("depositUpdate", ({ username, amount, txHash }) => {
+      if (username === user.username) {
+        setDepositStatus({ amount, txHash });
+        toast.success(`Депозит на $${amount.toFixed(2)} зачислен!`);
+      }
     });
 
     return () => {
-      socket.off("newNotification");
-      socket.off("notificationsRead");
+      socket.off("depositUpdate");
     };
-  }, [user, navigate]);
-
-  const handleMarkAsRead = async () => {
-    try {
-      await axios.post("http://localhost:3000/notifications/read", {});
-      toast.success("Уведомления отмечены как прочитанные");
-    } catch (err) {
-      toast.error("Ошибка при отметке уведомлений");
-    }
-  };
-
-  const handleNotificationClick = (notification) => {
-    if (notification.postId) {
-      navigate(`/post/${notification.postId}`);
-    }
-  };
+  }, [user]);
 
   if (isLoading) {
     return <div className="spinner-container"><div className="spinner"></div></div>;
@@ -1939,167 +1014,78 @@ function Notifications() {
 
   return (
     <HelmetProvider>
-      <div className="notifications-container">
+      <div className="deposit-container">
         <Helmet>
-          <title>Уведомления - CryptoAuthors</title>
-          <meta name="description" content="Просмотрите ваши уведомления на CryptoAuthors." />
+          <title>Пополнение баланса - CryptoAuthors</title>
+          <meta name="description" content="Пополните баланс с помощью Bitcoin на CryptoAuthors." />
         </Helmet>
-        <h1>Уведомления</h1>
-        {notifications.length === 0 ? (
-          <div className="notification-placeholder">
-            <p>Уведомлений пока нет</p>
+        <h1>Пополнение баланса</h1>
+        <p>Отправьте Bitcoin на указанный адрес (используется testnet):</p>
+        {address && (
+          <div className="deposit-details">
+            <p><strong>Адрес:</strong> {address}</p>
+            {qrCode && <img src={qrCode} alt="QR Code" className="deposit-qr" />}
+            <p>Минимальная сумма: 0.0001 BTC</p>
           </div>
-        ) : (
-          <>
-            <button className="publish-button" onClick={handleMarkAsRead}>
-              Отметить все как прочитанные
-            </button>
-            <ul className="notifications-list">
-              {notifications.map((notification) => (
-                <li
-                  key={notification._id}
-                  className={`notification-item ${notification.read ? "read" : "unread"}`}
-                  onClick={() => handleNotificationClick(notification)}
-                >
-                  {notification.type === "like" && (
-                    <p>
-                      <strong>{notification.fromUsername}</strong> лайкнул ваш пост
-                    </p>
-                  )}
-                  {notification.type === "comment" && (
-                    <p>
-                      <strong>{notification.fromUsername}</strong> прокомментировал ваш пост: "
-                      {notification.text}"
-                    </p>
-                  )}
-                  {notification.type === "subscription" && (
-                    <p>
-                      <strong>{notification.fromUsername}</strong> подписался на вас
-                    </p>
-                  )}
-                  <small>{new Date(notification.timestamp).toLocaleString()}</small>
-                </li>
-              ))}
-            </ul>
-          </>
+        )}
+        {depositStatus && (
+          <div className="deposit-status">
+            <p><strong>Статус депозита:</strong> Зачислено ${depositStatus.amount.toFixed(2)}</p>
+            <p><strong>Хэш транзакции:</strong> <a href={`https://live.blockcypher.com/btc-testnet/tx/${depositStatus.txHash}`} target="_blank" rel="noopener noreferrer">{depositStatus.txHash}</a></p>
+          </div>
         )}
       </div>
     </HelmetProvider>
   );
 }
 
-export default Notifications;
+export default Deposit;
 
 
 
 
 
-App.css:
-.post-media-container {
-  position: relative;
-  max-width: 100%;
-  margin-bottom: 12px;
-}
 
-.post-media {
-  width: 100%;
-  max-height: 400px;
-  object-fit: cover;
-  border-radius: 8px;
-}
-
-.post-media.blurred {
-  filter: blur(8px);
-}
-
-.blur-overlay {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-.comment-form {
-  display: flex;
-  margin-top: 12px;
-}
-
-.comment-input {
-  flex: 1;
-  padding: 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
-.comment-button {
-  padding: 8px 16px;
-  margin-left: 8px;
-  background: #4a90e2;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.comment-button:hover {
-  background: #357abd;
-}
-
-.notifications-container {
-  max-width: 800px;
+.deposit-container {
+  max-width: 600px;
   margin: 0 auto;
   padding: 24px;
+  text-align: center;
 }
 
-.notifications-list {
-  list-style: none;
-  padding: 0;
+.deposit-details {
+  background: #ffffff;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   margin-top: 16px;
 }
 
-.notification-item {
-  background: #ffffff;
+.deposit-qr {
+  max-width: 200px;
+  margin: 16px 0;
+}
+
+.deposit-status {
+  margin-top: 16px;
   padding: 12px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  margin-bottom: 12px;
-  cursor: pointer;
-  transition: transform 0.2s ease;
-}
-
-.notification-item:hover {
-  transform: scale(1.02);
-}
-
-.notification-item.unread {
   background: #f7fafc;
-  border-left: 4px solid #4a90e2;
+  border-radius: 8px;
 }
 
-.notification-item p {
-  margin: 0;
-  font-size: 16px;
+.deposit-status a {
+  color: #4a90e2;
+  text-decoration: none;
 }
 
-.notification-item small {
-  font-size: 12px;
-  color: #4a5568;
-  margin-top: 4px;
-  display: block;
-}
-
-.notification-placeholder {
-  text-align: center;
-  padding: 24px;
-  color: #4a5568;
+.deposit-status a:hover {
+  text-decoration: underline;
 }
 
 
 
+
+
+BLOCKCYPHER_TOKEN=1e24b629077244a8904360e640527d7c
+
+require("dotenv").config();
