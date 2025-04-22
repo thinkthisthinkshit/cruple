@@ -1,3 +1,5 @@
+curl -X POST http://localhost:3000/register -H 'Content-Type: application/json' -d '{"username":"testuser","password":"testpassword"}'
+curl -X POST http://localhost:3000/register -H "Content-Type: application/json" -d "{\"username\":\"testuser\",\"password\":\"testpassword\"}"
 curl -X POST http://localhost:3000/register -H "Content-Type: application/json" -d '{"username":"testuser","password":"testpassword"}'
 
 curl -H "Authorization: Bearer твой_токен" http://localhost:3000/deposit/address
