@@ -794,6 +794,7 @@ createTestMediaPost();
 server.listen(3000, () => console.log("Server running on port 3000"));
 
 
+
 Navbar.js:
 import React, { useContext, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -836,16 +837,14 @@ function Navbar() {
       return;
     }
     try {
-      console.log("Fetching counts for user:", user.username, "Token:", user.token.substring(0, 20) + "...");
-      const messagesRes = await axios.get("http://localhost:3000/messages/unread", {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
+      console.log("Fetching counts for user:", user.username);
+      const messagesRes = await axios.get("http://localhost:3000/messages/unread");
       console.log("Messages response:", messagesRes.data);
       setUnreadMessagesCount(messagesRes.data.unreadMessagesCount);
     } catch (err) {
       console.error("Fetch messages count error:", err.message, err.response?.data);
-      if (err.response?.status === 403) {
-        console.log("403 Forbidden: Invalid or missing token. Logging out...");
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        console.log(`${err.response.status} Error: Invalid or missing token. Logging out...`);
         setUser(null);
         localStorage.removeItem("user");
         navigate("/login");
@@ -939,8 +938,7 @@ function Navbar() {
     try {
       const response = await axios.post(
         "http://localhost:3000/become-author",
-        { authorNickname },
-        { headers: { Authorization: `Bearer ${user.token}` } }
+        { authorNickname }
       );
       const newUser = {
         username: response.data.username,
@@ -1507,20 +1505,23 @@ body {
 App.js:
 import React, { createContext, useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import axios from "axios";
 import Navbar from "./components/Navbar";
 import Home from "./components/Home";
-import Login from "./components/Login";
-import Register from "./components/Register";
-import AuthorPage from "./components/AuthorPage";
+import AuthorProfile from "./components/AuthorProfile";
 import Content from "./components/Content";
 import Deposit from "./components/Deposit";
 import Settings from "./components/Settings";
+import Login from "./components/Login";
 import Messages from "./components/Messages";
 import Chat from "./components/Chat";
 import Search from "./components/Search";
-import Favorites from "./components/Favorites";
 import Notifications from "./components/Notifications";
-import AdminPanel from "./components/AdminPanel";
+import Feed from "./components/Feed";
+import PostPage from "./components/PostPage";
+import Favorites from "./components/Favorites";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import "./App.css";
 
 export const AuthContext = createContext();
@@ -1534,13 +1535,43 @@ function App() {
       try {
         const parsedUser = JSON.parse(storedUser);
         console.log("App.js - Loaded user from localStorage:", parsedUser);
-        setUser(parsedUser);
+        if (parsedUser && parsedUser.token) {
+          setUser(parsedUser);
+        } else {
+          console.warn("App.js - Invalid user data, missing token:", parsedUser);
+          localStorage.removeItem("user");
+        }
       } catch (err) {
-        console.error("App.js - Failed to parse user from localStorage:", err);
+        console.error("App.js - Error parsing stored user:", err);
         localStorage.removeItem("user");
       }
+    } else {
+      console.log("App.js - No user in localStorage");
     }
   }, []);
+
+  useEffect(() => {
+    const interceptor = axios.interceptors.request.use(
+      (config) => {
+        const token = user?.token;
+        console.log("App.js - Axios interceptor - URL:", config.url, "Token:", token || "undefined");
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        } else {
+          console.log("App.js - Axios interceptor - No token available");
+        }
+        return config;
+      },
+      (error) => {
+        console.error("App.js - Axios interceptor error:", error);
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      axios.interceptors.request.eject(interceptor);
+    };
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{ user, setUser }}>
@@ -1548,23 +1579,29 @@ function App() {
         <Navbar />
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/author/:username" element={<AuthorPage />} />
+          <Route path="/author/:username" element={<AuthorProfile />} />
           <Route path="/content" element={<Content />} />
           <Route path="/deposit" element={<Deposit />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/login" element={<Login />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/messages/:chatId" element={<Chat />} />
           <Route path="/search" element={<Search />} />
-          <Route path="/favorites" element={<Favorites />} />
           <Route path="/notifications" element={<Notifications />} />
-          <Route path="/admin" element={<AdminPanel />} />
+          <Route path="/feed" element={<Feed />} />
+          <Route path="/post/:postId" element={<PostPage />} />
+          <Route path="/favorites" element={<Favorites />} />
         </Routes>
+        <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
       </Router>
     </AuthContext.Provider>
   );
 }
 
 export default App;
+
+
+
+
+
 
