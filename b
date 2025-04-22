@@ -1,3 +1,7 @@
+curl -X POST https://abcd-1234-efgh-5678.ngrok.io/webhook/deposit?secret=justbetweenus -H "Content-Type: application/json" -d "{\"hash\":\"test\",\"outputs\":[{\"addresses\":[\"mvc2RT4fXsS4j6S3Cnjuf6GKcHZS1vMB7F\"],\"value\":10000}]}"
+
+
+
 curl -X POST https://abcd-1234-efgh-5678.ngrok.io/webhook/deposit?secret=justbetweenus -H "Content-Type: application/json" -d '{"hash":"test","outputs":[{"addresses":["mvc2RT4fXsS4j6S3Cnjuf6GKcHZS1vMB7F"],"value":10000}]}'
 
 
