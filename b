@@ -1,38 +1,4 @@
-app.get("/deposit/address", authMiddleware, async (req, res) => {
-  try {
-    let user = await User.findById(req.user.id);
-    if (!user.bitcoinAddress) {
-      const userIndex = (await User.countDocuments()) + 1;
-      const address = generateBitcoinAddress(userIndex);
-      user.bitcoinAddress = address;
-      await user.save();
-
-      const webhookData = {
-        event: "tx-confirmation",
-        address: address,
-        url: "https://abcd-1234-efgh-5678.ngrok.io/webhook/deposit?secret=justbetweenus",
-        token: process.env.BLOCKCYPHER_TOKEN,
-      };
-      console.log("Attempting to create webhook:", webhookData);
-      try {
-        await axios.post(
-          "https://api.blockcypher.com/v1/btc/test3/hooks",
-          webhookData,
-          { headers: { "Content-Type": "application/json" } }
-        );
-        console.log(`Webhook created for address: ${address}`);
-      } catch (webhookErr) {
-        console.error("Webhook creation error:", webhookErr.response?.data || webhookErr.message);
-      }
-    }
-    const qrCode = await QRCode.toDataURL(user.bitcoinAddress);
-    res.json({ address: user.bitcoinAddress, qrCode });
-  } catch (err) {
-    console.error("Deposit address error:", err);
-    res.status(500).json({ error: "Ошибка генерации адреса" });
-  }
-});
-
+curl -X POST https://abcd-1234-efgh-5678.ngrok.io/webhook/deposit?secret=justbetweenus -H "Content-Type: application/json" -d '{"hash":"test","outputs":[{"addresses":["mvc2RT4fXsS4j6S3Cnjuf6GKcHZS1vMB7F"],"value":10000}]}'
 
 
 
