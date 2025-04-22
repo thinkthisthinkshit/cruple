@@ -1,109 +1,3 @@
-.badge {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  background: red;
-  color: white;
-  border-radius: 50%;
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-}
-.nav-messages-button,
-.nav-notifications-button,
-.bottom-nav-item {
-  position: relative;
-}
-
-App.js:
-import React, { createContext, useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import Navbar from "./components/Navbar";
-import Home from "./components/Home";
-import AuthorProfile from "./components/AuthorProfile";
-import Content from "./components/Content";
-import Deposit from "./components/Deposit";
-import Settings from "./components/Settings";
-import Login from "./components/Login";
-import Messages from "./components/Messages";
-import Chat from "./components/Chat";
-import Search from "./components/Search";
-import Notifications from "./components/Notifications";
-import Feed from "./components/Feed";
-import PostPage from "./components/PostPage";
-import Favorites from "./components/Favorites";
-import { ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
-import "./App.css";
-
-export const AuthContext = createContext();
-
-function App() {
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        if (parsedUser && parsedUser.token) {
-          setUser(parsedUser);
-        } else {
-          localStorage.removeItem("user");
-        }
-      } catch (err) {
-        console.error("Error parsing stored user:", err);
-        localStorage.removeItem("user");
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const interceptor = axios.interceptors.request.use((config) => {
-      console.log(`Axios interceptor - URL: ${config.url}, Token: ${user?.token || "none"}`);
-      if (user?.token) {
-        config.headers.Authorization = `Bearer ${user.token}`;
-      }
-      return config;
-    });
-    return () => {
-      axios.interceptors.request.eject(interceptor);
-    };
-  }, [user]);
-
-  return (
-    <AuthContext.Provider value={{ user, setUser }}>
-      <Router>
-        <Navbar />
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/author/:username" element={<AuthorProfile />} />
-          <Route path="/content" element={<Content />} />
-          <Route path="/deposit" element={<Deposit />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/messages" element={<Messages />} />
-          <Route path="/messages/:chatId" element={<Chat />} />
-          <Route path="/search" element={<Search />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/feed" element={<Feed />} />
-          <Route path="/post/:postId" element={<PostPage />} />
-          <Route path="/favorites" element={<Favorites />} />
-        </Routes>
-        <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
-      </Router>
-    </AuthContext.Provider>
-  );
-}
-
-export default App;
-
-
-Navbar.js:
 import React, { useContext, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -149,7 +43,9 @@ function Navbar() {
     }
     try {
       console.log("Fetching messages count...");
-      const messagesRes = await axios.get("http://localhost:3000/messages/unread");
+      const messagesRes = await axios.get("http://localhost:3000/messages/unread", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
       console.log("Messages count:", messagesRes.data.unreadMessagesCount);
       setUnreadMessagesCount(messagesRes.data.unreadMessagesCount);
     } catch (err) {
@@ -160,7 +56,6 @@ function Navbar() {
   useEffect(() => {
     if (user && user.username && user.token) {
       console.log("Navbar useEffect - User:", user);
-      // Отложить вызов fetchCounts
       setTimeout(() => {
         fetchCounts();
         socket.emit("joinChat", user.username);
@@ -309,7 +204,9 @@ function Navbar() {
               title="Уведомления"
             >
               <FiBell />
-              {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
+              {unreadCount > 0 && (
+                <span className="badge">{unreadCount > 20 ? "20+" : unreadCount}</span>
+              )}
             </button>
             <button
               className="nav-messages-button"
@@ -318,7 +215,9 @@ function Navbar() {
             >
               <FiMessageSquare />
               {unreadMessagesCount > 0 && (
-                <span className="badge">{unreadMessagesCount}</span>
+                <span className="badge">
+                  {unreadMessagesCount > 20 ? "20+" : unreadMessagesCount}
+                </span>
               )}
             </button>
             <button
@@ -434,7 +333,9 @@ function Navbar() {
           >
             <FiMessageSquare />
             {unreadMessagesCount > 0 && (
-              <span className="badge">{unreadMessagesCount}</span>
+              <span className="badge">
+                {unreadMessagesCount > 20 ? "20+" : unreadMessagesCount}
+              </span>
             )}
           </button>
           <button
@@ -443,7 +344,9 @@ function Navbar() {
             title="Уведомления"
           >
             <FiBell />
-            {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
+            {unreadCount > 0 && (
+              <span className="badge">{unreadCount > 20 ? "20+" : unreadCount}</span>
+            )}
           </button>
         </div>
       )}
@@ -546,8 +449,3 @@ function Navbar() {
 }
 
 export default Navbar;
-
-
-
-
-
