@@ -1,3 +1,5 @@
+curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6InRlc3R1c2VyIiwicm9sZSI6InZpZXdlciIsImlkIjoiNjgwODEwOWIxMjEzMTlkMDE2OGY3OWRjIiwiaWF0IjoxNzQ1MzU5MDAzfQ.i6EDtaCci7xwLm0b1P9lb2iArVq8sn_MpqA_M4cGUFE" http://localhost:3000/balance/testuser
+
 app.post("/webhook/deposit", async (req, res) => {
   console.log("Webhook received:", JSON.stringify(req.body, null, 2));
   if (req.query.secret !== "justbetweenus") {
