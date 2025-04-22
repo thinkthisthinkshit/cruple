@@ -1,3 +1,5 @@
+curl -H "Authorization: Bearer твой_токен" http://localhost:3000/deposit/address
+
 const express = require("express");
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
