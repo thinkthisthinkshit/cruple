@@ -1089,3 +1089,4 @@ export default Deposit;
 BLOCKCYPHER_TOKEN=1e24b629077244a8904360e640527d7c
 
 require("dotenv").config();
+ngrok config add-authtoken 2w6FqW4UPaDxLwCSYDJGvJKqgfc_3e253gQUMknzP56a4kqbp
