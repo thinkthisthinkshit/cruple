@@ -16,6 +16,7 @@ const bitcoin = require("bitcoinjs-lib");
 const bip32 = require("bip32");
 const bip39 = require("bip39");
 const axios = require("axios");
+require("dotenv").config(); // Загрузка переменных окружения
 
 // Модель Notification
 const NotificationSchema = new mongoose.Schema({
@@ -121,7 +122,7 @@ const getBtcPrice = async () => {
     return response.data.bitcoin.usd;
   } catch (err) {
     console.error("Ошибка получения цены BTC:", err);
-    return 60000; // Фallback-цена
+    return 60000; // Fallback-цена
   }
 };
 
@@ -160,16 +161,38 @@ app.get("/deposit/address", authMiddleware, async (req, res) => {
       const address = generateBitcoinAddress(userIndex);
       user.bitcoinAddress = address;
       await user.save();
+
+      // Создание вебхука для BlockCypher
+      const webhookData = {
+        event: "tx-confirmation",
+        address: address,
+        url: "https://1234-5678-90ab-cdef.ngrok.io/webhook/deposit?secret=justbetweenus",
+        token: process.env.BLOCKCYPHER_TOKEN,
+      };
+      try {
+        await axios.post(
+          "https://api.blockcypher.com/v1/btc/test3/hooks",
+          webhookData,
+          { headers: { "Content-Type": "application/json" } }
+        );
+        console.log(`Webhook created for address: ${address}`);
+      } catch (webhookErr) {
+        console.error("Ошибка создания вебхука:", webhookErr.response?.data || webhookErr.message);
+      }
     }
     const qrCode = await QRCode.toDataURL(user.bitcoinAddress);
     res.json({ address: user.bitcoinAddress, qrCode });
   } catch (err) {
+    console.error("Ошибка генерации адреса:", err);
     res.status(500).json({ error: "Ошибка генерации адреса" });
   }
 });
 
 // Webhook для BlockCypher (обрабатываем входящие транзакции)
 app.post("/webhook/deposit", async (req, res) => {
+  if (req.query.secret !== "justbetweenus") {
+    return res.status(403).send("Invalid secret");
+  }
   const { hash, outputs } = req.body;
   try {
     for (const output of outputs) {
