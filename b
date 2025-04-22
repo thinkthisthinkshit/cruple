@@ -1,3 +1,23 @@
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema({
+  username: String,
+  password: String,
+  role: { type: String, default: "viewer" },
+  subscribers: { type: Array, default: [] },
+  about: { type: String, default: "" },
+  socialLinks: { type: Array, default: [] },
+  avatarUrl: { type: String, default: "" },
+  coverPhoto: { type: String, default: "" },
+  subscriptionPrice: { type: Number, default: 0 },
+  balance: { type: Number, default: 0 },
+  favorites: { type: Array, default: [] },
+  bitcoinAddress: String // Важно: должно быть!
+});
+
+const User = mongoose.model("User", userSchema);
+
+
 app.post("/webhook/deposit", async (req, res) => {
   console.log("Webhook received:", JSON.stringify(req.body, null, 2));
   if (req.query.secret !== "justbetweenus") {
