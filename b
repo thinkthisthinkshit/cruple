@@ -1,3 +1,41 @@
+app.post("/webhook/deposit", async (req, res) => {
+  console.log("Webhook received:", JSON.stringify(req.body, null, 2));
+  if (req.query.secret !== "justbetweenus") {
+    console.log("Invalid secret received");
+    return res.status(403).send("Invalid secret");
+  }
+  try {
+    const { hash, outputs } = req.body;
+    for (const output of outputs) {
+      const user = await User.findOne({ bitcoinAddress: output.addresses[0] });
+      if (user) {
+        const btcAmount = output.value / 1e8;
+        const btcPrice = await getBtcPrice();
+        const usdAmount = btcAmount * btcPrice;
+        user.balance += usdAmount;
+        await user.save();
+        console.log(`Balance updated for ${user.username}: +$${usdAmount}`);
+        io.to(user._id.toString()).emit("depositUpdate", {
+          username: user.username,
+          amount: usdAmount,
+          txHash: hash,
+        });
+        break;
+      }
+    }
+    res.status(200).send("OK");
+  } catch (err) {
+    console.error("Webhook error:", err);
+    res.status(500).send("Error");
+  }
+});
+
+
+
+
+
+
+
 curl -X POST https://abcd-1234-efgh-5678.ngrok.io/webhook/deposit?secret=justbetweenus -H "Content-Type: application/json" -d "{\"hash\":\"test\",\"outputs\":[{\"addresses\":[\"mvc2RT4fXsS4j6S3Cnjuf6GKcHZS1vMB7F\"],\"value\":10000}]}"
 
 
