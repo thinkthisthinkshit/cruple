@@ -1,3 +1,47 @@
+app.post("/webhook/deposit", async (req, res) => {
+  console.log("Webhook received:", JSON.stringify(req.body, null, 2));
+  if (req.query.secret !== "justbetweenus") {
+    console.log("Invalid secret received");
+    return res.status(403).send("Invalid secret");
+  }
+  try {
+    const { hash, outputs } = req.body;
+    for (const output of outputs) {
+      console.log("Checking address:", output.addresses[0]);
+      const user = await User.findOne({ bitcoinAddress: output.addresses[0] });
+      if (user) {
+        console.log("User found:", user.username);
+        const btcAmount = output.value / 1e8;
+        console.log("BTC amount:", btcAmount);
+        const btcPrice = await getBtcPrice();
+        console.log("BTC price (USD):", btcPrice);
+        const usdAmount = btcAmount * btcPrice;
+        user.balance += usdAmount;
+        await user.save();
+        console.log(`Balance updated for ${user.username}: +$${usdAmount}`);
+        io.to(user._id.toString()).emit("depositUpdate", {
+          username: user.username,
+          amount: usdAmount,
+          txHash: hash,
+        });
+        break;
+      } else {
+        console.log("No user found for address:", output.addresses[0]);
+      }
+    }
+    res.status(200).send("OK");
+  } catch (err) {
+    console.error("Webhook error:", err);
+    res.status(500).send("Error");
+  }
+});
+
+
+
+
+
+
+
 curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6InRlc3R1c2VyIiwicm9sZSI6InZpZXdlciIsImlkIjoiNjgwODEwOWIxMjEzMTlkMDE2OGY3OWRjIiwiaWF0IjoxNzQ1MzU5MDAzfQ.i6EDtaCci7xwLm0b1P9lb2iArVq8sn_MpqA_M4cGUFE" http://localhost:3000/balance/testuser
 
 app.post("/webhook/deposit", async (req, res) => {
