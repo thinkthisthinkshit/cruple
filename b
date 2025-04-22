@@ -1,3 +1,8 @@
+curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6InRlc3R1c2VyIiwicm9sZSI6InZpZXdlciIsImlkIjoiNjgwODEwOWIxMjEzMTlkMDE2OGY3OWRjIiwiaWF0IjoxNzQ1MzU5MDAzfQ.i6EDtaCci7xwLm0b1P9lb2iArVq8sn_MpqA_M4cGUFE" http://localhost:3000/deposit/address
+
+
+
+
 curl -X POST http://localhost:3000/register -H 'Content-Type: application/json' -d '{"username":"testuser","password":"testpassword"}'
 curl -X POST http://localhost:3000/register -H "Content-Type: application/json" -d "{\"username\":\"testuser\",\"password\":\"testpassword\"}"
 curl -X POST http://localhost:3000/register -H "Content-Type: application/json" -d '{"username":"testuser","password":"testpassword"}'
