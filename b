@@ -1,3 +1,4 @@
+server.js:
 const express = require("express");
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
@@ -62,14 +63,17 @@ mongoose
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   console.log("authMiddleware - Token:", token ? token.substring(0, 10) + "..." : "undefined");
-  if (!token) return res.status(401).json({ error: "Требуется авторизация" });
+  if (!token) {
+    console.log("authMiddleware - No token provided");
+    return res.status(401).json({ error: "Требуется авторизация" });
+  }
   try {
     const decoded = jwt.verify(token, "secret");
     console.log("authMiddleware - Decoded user:", decoded);
     req.user = decoded;
     next();
   } catch (err) {
-    console.error("authMiddleware - Token verification error:", err);
+    console.error("authMiddleware - Token verification error:", err.message);
     res.status(401).json({ error: "Недействительный токен" });
   }
 };
@@ -255,6 +259,7 @@ app.post("/messages/:chatId/read", authMiddleware, async (req, res) => {
     );
     console.log("Messages marked as read, updated count:", updated.modifiedCount);
     io.to(req.params.chatId).emit("messagesRead", { chatId: req.params.chatId });
+    io.to(user1 === req.user.username ? user2 : user1).emit("messagesRead", { chatId: req.params.chatId });
     res.json({ success: true });
   } catch (err) {
     console.error("Mark messages read error:", err.message, err.stack);
@@ -289,6 +294,17 @@ app.post("/messages/start", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("Start chat error:", err.message, err.stack);
     res.status(500).json({ error: "Ошибка начала чата" });
+  }
+});
+
+// Заглушка для /notifications/unread
+app.get("/notifications/unread", authMiddleware, async (req, res) => {
+  try {
+    console.log("GET /notifications/unread called for user:", req.user.username);
+    res.json({ unreadCount: 0 });
+  } catch (err) {
+    console.error("Fetch unread notifications error:", err.message);
+    res.status(500).json({ error: "Ошибка получения уведомлений" });
   }
 });
 
@@ -778,6 +794,7 @@ createTestMediaPost();
 server.listen(3000, () => console.log("Server running on port 3000"));
 
 
+Navbar.js:
 import React, { useContext, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -795,8 +812,6 @@ import {
   FiDollarSign,
   FiSearch,
   FiMessageSquare,
-  FiBell,
-  FiMenu,
   FiStar,
 } from "react-icons/fi";
 import io from "socket.io-client";
@@ -810,33 +825,31 @@ function Navbar() {
   const [authorNickname, setAuthorNickname] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const dropdownRef = useRef(null);
   const touchStartX = useRef(null);
 
-  // Загрузка unreadCount и unreadMessagesCount
+  // Загрузка unreadMessagesCount
   const fetchCounts = async () => {
     if (!user || !user.token) {
       console.log("fetchCounts skipped: No user or token");
       return;
     }
     try {
-      console.log("Fetching counts for user:", user.username);
-      const [notificationsRes, messagesRes] = await Promise.all([
-        axios.get("http://localhost:3000/notifications/unread", {
-          headers: { Authorization: `Bearer ${user.token}` },
-        }),
-        axios.get("http://localhost:3000/messages/unread", {
-          headers: { Authorization: `Bearer ${user.token}` },
-        }),
-      ]);
-      console.log("Notifications response:", notificationsRes.data);
+      console.log("Fetching counts for user:", user.username, "Token:", user.token.substring(0, 20) + "...");
+      const messagesRes = await axios.get("http://localhost:3000/messages/unread", {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
       console.log("Messages response:", messagesRes.data);
-      setUnreadCount(notificationsRes.data.unreadCount);
       setUnreadMessagesCount(messagesRes.data.unreadMessagesCount);
     } catch (err) {
-      console.error("Fetch counts error:", err.message, err.response?.data);
+      console.error("Fetch messages count error:", err.message, err.response?.data);
+      if (err.response?.status === 403) {
+        console.log("403 Forbidden: Invalid or missing token. Logging out...");
+        setUser(null);
+        localStorage.removeItem("user");
+        navigate("/login");
+      }
     }
   };
 
@@ -847,7 +860,7 @@ function Navbar() {
       socket.emit("joinChat", user.username);
       console.log("Joined chat for user:", user.username);
     }
-  }, [user]);
+  }, [user, fetchCounts]);
 
   // Socket.IO: Обработка новых сообщений и отметки прочитанных
   useEffect(() => {
@@ -868,7 +881,7 @@ function Navbar() {
       socket.off("newMessage");
       socket.off("messagesRead");
     };
-  }, [user]);
+  }, [user, fetchCounts]);
 
   // Обработка кликов вне дропдауна и сайдбара
   useEffect(() => {
@@ -968,7 +981,7 @@ function Navbar() {
               <FiHome />
             </button>
             <button className="nav-menu-button" onClick={toggleSidebar} title="Меню">
-              <FiMenu />
+              <FiHome />
             </button>
           </>
         )}
@@ -986,14 +999,6 @@ function Navbar() {
               title="Поиск"
             >
               <FiSearch />
-            </button>
-            <button
-              className="nav-notifications-button"
-              onClick={() => navigate("/notifications")}
-              title="Уведомления"
-            >
-              <FiBell />
-              {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
             </button>
             <button
               className="nav-messages-button"
@@ -1101,33 +1106,25 @@ function Navbar() {
             className="bottom-nav-item"
             onClick={() => navigate("/")}
             title="Главная"
-          >
+            >
             <FiHome />
           </button>
           <button
             className="bottom-nav-item"
             onClick={() => navigate("/search")}
             title="Поиск"
-          >
+            >
             <FiSearch />
           </button>
           <button
             className="bottom-nav-item pulse"
             onClick={() => navigate("/messages")}
             title="Сообщения"
-          >
+            >
             <FiMessageSquare />
             {unreadMessagesCount > 0 && (
               <span className="badge">{unreadMessagesCount}</span>
             )}
-          </button>
-          <button
-            className="bottom-nav-item pulse"
-            onClick={() => navigate("/notifications")}
-            title="Уведомления"
-          >
-            <FiBell />
-            {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
           </button>
         </div>
       )}
@@ -1231,8 +1228,59 @@ function Navbar() {
 
 export default Navbar;
 
+
+
+CSS:
+/* Основные стили */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #f5f5f5;
+}
+
+.App {
+  text-align: center;
+}
+
+/* Navbar */
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  padding: 10px 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.nav-logo {
+  font-size: 24px;
+  font-weight: bold;
+  color: #6200ea;
+  cursor: pointer;
+}
+
+.nav-actions {
+  display: flex;
+  gap: 15px;
+}
+
+.nav-home-button,
+.nav-search-button,
+.nav-messages-button,
+.nav-favorites-button,
+.nav-menu-button {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #333;
+  position: relative;
+}
+
 .nav-messages-button .badge,
-.nav-notifications-button .badge,
 .bottom-nav-item .badge {
   position: absolute;
   top: -4px;
@@ -1249,4 +1297,274 @@ export default Navbar;
   z-index: 10;
 }
 
+.nav-header {
+  display: flex;
+  align-items: center;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  color: #333;
+}
+
+.login-button {
+  background: #6200ea;
+  color: #ffffff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  z-index: 1000;
+  min-width: 200px;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.dropdown-item:hover {
+  background: #f5f5f5;
+}
+
+/* Bottom Navigation */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  padding: 10px 0;
+  box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+}
+
+.bottom-nav-item {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #333;
+  flex: 1;
+  position: relative;
+}
+
+/* Sidebar */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: -250px;
+  width: 250px;
+  height: 100%;
+  background: #ffffff;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+  transition: left 0.3s ease;
+  z-index: 1000;
+}
+
+.sidebar.active {
+  left: 0;
+}
+
+.sidebar-links {
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  gap: 10px;
+}
+
+.sidebar-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 10px;
+  font-size: 16px;
+  cursor: pointer;
+  color: #333;
+  text-align: left;
+}
+
+.sidebar-button:hover {
+  background: #f5f5f5;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: #ffffff;
+  padding: 20px;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.modal h2 {
+  margin: 0 0 20px;
+  font-size: 24px;
+}
+
+.modal input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 20px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.publish-button,
+.close-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.publish-button {
+  background: #6200ea;
+  color: #ffffff;
+}
+
+.close-button {
+  background: #f5f5f5;
+  color: #333;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .navbar {
+    padding: 10px;
+  }
+  .nav-actions {
+    gap: 10px;
+  }
+  .nav-home-button,
+  .nav-search-button,
+  .nav-messages-button,
+  .nav-favorites-button,
+  .nav-menu-button {
+    font-size: 18px;
+  }
+  .user-info {
+    font-size: 14px;
+  }
+  .bottom-nav {
+    display: flex;
+    justify-content: space-around;
+  }
+  .nav-logo {
+    font-size: 20px;
+  }
+}
+
+
+
+App.js:
+import React, { createContext, useState, useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import Navbar from "./components/Navbar";
+import Home from "./components/Home";
+import Login from "./components/Login";
+import Register from "./components/Register";
+import AuthorPage from "./components/AuthorPage";
+import Content from "./components/Content";
+import Deposit from "./components/Deposit";
+import Settings from "./components/Settings";
+import Messages from "./components/Messages";
+import Chat from "./components/Chat";
+import Search from "./components/Search";
+import Favorites from "./components/Favorites";
+import Notifications from "./components/Notifications";
+import AdminPanel from "./components/AdminPanel";
+import "./App.css";
+
+export const AuthContext = createContext();
+
+function App() {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        console.log("App.js - Loaded user from localStorage:", parsedUser);
+        setUser(parsedUser);
+      } catch (err) {
+        console.error("App.js - Failed to parse user from localStorage:", err);
+        localStorage.removeItem("user");
+      }
+    }
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, setUser }}>
+      <Router>
+        <Navbar />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/author/:username" element={<AuthorPage />} />
+          <Route path="/content" element={<Content />} />
+          <Route path="/deposit" element={<Deposit />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/messages" element={<Messages />} />
+          <Route path="/messages/:chatId" element={<Chat />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="/favorites" element={<Favorites />} />
+          <Route path="/notifications" element={<Notifications />} />
+          <Route path="/admin" element={<AdminPanel />} />
+        </Routes>
+      </Router>
+    </AuthContext.Provider>
+  );
+}
+
+export default App;
 
