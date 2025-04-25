@@ -271,3 +271,10 @@ BACKEND:
   }
 }
 
+
+BOT:
+{
+  "dependencies": {
+    "telegraf": "^4.0.0"
+  }
+}
