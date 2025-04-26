@@ -1,3 +1,21 @@
+const { Telegraf } = require('telegraf');
+
+const bot = new Telegraf('YOUR_BOT_TOKEN');
+
+bot.start((ctx) => {
+  ctx.reply('Welcome to BTC Signals! Open the app:', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'Open App', web_app: { url: 'https://localhost:5173' } }]
+      ]
+    }
+  });
+});
+
+bot.launch();
+console.log('Bot running...');
+
+
 import { defineConfig } from 'vite';
    import react from '@vitejs/plugin-react';
    import fs from 'fs';
