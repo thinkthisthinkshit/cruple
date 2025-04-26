@@ -1,3 +1,23 @@
+Remove-Item -Path "C:\Program Files\nodejs" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "C:\Users\DIMA$\AppData\Roaming\npm" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "C:\Users\DIMA$\AppData\Roaming\npm-cache" -Recurse -Force -ErrorAction SilentlyContinue
+
+
+Stop-Process -Name "node" -Force -ErrorAction SilentlyContinue
+
+
+
+[Environment]::GetEnvironmentVariable("Path", "User")
+
+$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$newPath = ($currentPath -split ";" | Where-Object { $_ -ne "C:\Users\DIMA$\AppData\Roaming\npm" }) -join ";"
+[Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+
+
+[Environment]::GetEnvironmentVariable("Path", "User")
+$Env:Path
+
+
 assoc .cmd=batfile
 ftype batfile="%SystemRoot%\System32\cmd.exe" /c "%1" %*
 
