@@ -1,3 +1,41 @@
+assoc .cmd=batfile
+ftype batfile="%SystemRoot%\System32\cmd.exe" /c "%1" %*
+
+
+
+assoc .js=JSFile
+ftype JSFile="C:\Program Files\nodejs\node.exe" "%1" %*
+
+
+
+
+
+where node
+
+
+
+
+$Env:Path
+
+notepad $PROFILE
+
+New-Item -Path $PROFILE -ItemType File -Force
+
+
+$Env:Path += ";C:\Program Files\nodejs;C:\Users\DIMA$\AppData\Roaming\npm"
+
+
+
+Get-ExecutionPolicy
+
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+
+
+
+
+
+
 index.html
 <!DOCTYPE html>
 <html lang="en">
