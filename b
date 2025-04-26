@@ -1,84 +1,70 @@
-require('dotenv').config();
-const fastify = require('fastify')({ logger: true });
-const { Client } = require('pg');
-const Redis = require('redis');
-const { TonClient } = require('@ton/ton');
+import { useState, useEffect } from 'react';
+import QRCode from 'qrcode.react';
 
-// Настройка CORS
-fastify.register(require('@fastify/cors'), {
-  origin: '*', // Разрешить запросы с любого источника (для разработки)
-});
+function WalletForm({ userId }) {
+  const [address, setAddress] = useState('');
+  const [balance, setBalance] = useState(0);
+  const [error, setError] = useState(null);
 
-const client = new Client({
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: 'crypto_signals',
-  host: 'localhost',
-  port: 5432,
-});
-
-const redis = Redis.createClient({
-  url: 'redis://localhost:6379',
-});
-
-const tonClient = new TonClient({
-  endpoint: 'https://toncenter.com/api/v2/jsonRPC',
-  apiKey: process.env.TON_API_KEY,
-});
-
-async function start() {
-  try {
-    // Подключение к PostgreSQL
-    await client.connect();
-    console.log('Connected to PostgreSQL');
-
-    // Подключение к Redis
-    await redis.connect();
-    console.log('Connected to Redis');
-
-    // Маршруты
-    fastify.get('/api/wallet/:userId', async (request, reply) => {
-      const { userId } = request.params;
+  useEffect(() => {
+    async function fetchWallet() {
       try {
-        const res = await client.query('SELECT * FROM wallets WHERE user_id = $1', [userId]);
-        if (res.rows.length === 0) {
-          return { error: 'Wallet not found' };
+        console.log('Fetching wallet for userId:', userId);
+        const response = await fetch(`https://abcd-1234.ngrok-free.app/api/wallet/${userId}`, {
+          mode: 'cors',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
-        return res.rows[0];
-      } catch (err) {
-        fastify.log.error(err);
-        reply.status(500).send({ error: 'Database error' });
+        const data = await response.json();
+        if (data.error) {
+          setError(data.error);
+          console.error('API error:', data.error);
+          return;
+        }
+        setAddress(data.address);
+        setBalance(data.balance);
+        console.log('Wallet data:', data);
+      } catch (error) {
+        setError(error.message);
+        console.error('Failed to fetch wallet:', error);
       }
-    });
+    }
+    fetchWallet();
+  }, [userId]);
 
-    fastify.post('/signal/:userId/:symbol', async (request, reply) => {
-      const { userId, symbol } = request.params;
-      const exchange = new ccxt.binance();
-      try {
-        const ohlcv = await exchange.fetchOHLCV(symbol + '/USDT', '1h', undefined, 100);
-        const closes = ohlcv.map(candle => candle[4]);
+  const topUp = () => {
+    if (address) {
+      window.Telegram.WebApp.openTelegramLink(
+        `https://t.me/wallet?start=send&address=${encodeURIComponent(address)}&amount=1`
+      );
+    } else {
+      setError('No wallet address available');
+    }
+  };
 
-        // Простой сигнал
-        const signal = closes[closes.length - 1] > closes[closes.length - 2] ? 'BUY' : 'SELL';
-
-        // Обновление баланса
-        await client.query('UPDATE wallets SET balance = balance + 0.1 WHERE user_id = $1', [userId]);
-        const res = await client.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
-
-        return { signal, newBalance: res.rows[0].balance };
-      } catch (err) {
-        fastify.log.error(err);
-        reply.status(500).send({ error: 'Signal processing error' });
-      }
-    });
-
-    // Запуск сервера
-    await fastify.listen({ port: 3001 });
-    console.log('Server running at http://localhost:3001');
-  } catch (err) {
-    fastify.log.error(err);
-    process.exit(1);
-  }
+  return (
+    <div className="mb-4">
+      {error && <p className="text-red-500">Error: {error}</p>}
+      <p className="text-lg">Balance: {balance} TON</p>
+      <p className="text-sm break-all">Address: {address}</p>
+      {address && (
+        <div className="mt-2">
+          <QRCode value={address} size={128} />
+        </div>
+      )}
+      <button
+        className="bg-blue-500 text-white p-2 rounded mt-2"
+        onClick={topUp}
+        disabled={!address}
+      >
+        Top Up via Telegram Wallet
+      </button>
+    </div>
+  );
 }
 
-start();
+export default WalletForm;
