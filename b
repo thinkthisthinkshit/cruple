@@ -1,65 +1,76 @@
-<!DOCTYPE html>
-   <html lang="en">
-     <head>
-       <meta charset="UTF-8" />
-       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-       <title>BTC Signals</title>
-     </head>
-     <body>
-       <div id="root"></div>
-       <script type="module" src="/src/main.jsx"></script>
-     </body>
-   </html>
+require('dotenv').config();
+const fastify = require('fastify')({ logger: true });
+const { Client } = require('pg');
+const Redis = require('redis');
+const { TonClient } = require('@ton/ton');
 
+const client = new Client({
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: 'crypto_signals',
+  host: 'localhost',
+  port: 5432,
+});
 
+const redis = Redis.createClient();
+const tonClient = new TonClient({
+  endpoint: 'https://toncenter.com/api/v2/jsonRPC',
+  apiKey: process.env.TON_API_KEY,
+});
 
+async function start() {
+  try {
+    // Подключение к PostgreSQL
+    await client.connect();
+    console.log('Connected to PostgreSQL');
 
+    // Подключение к Redis
+    await redis.connect();
+    console.log('Connected to Redis');
 
-main.jsx:
-import React from 'react';
-   import ReactDOM from 'react-dom/client';
-   import App from './App.jsx';
-   import './index.css';
+    // Маршруты
+    fastify.get('/api/wallet/:userId', async (request, reply) => {
+      const { userId } = request.params;
+      try {
+        const res = await client.query('SELECT * FROM wallets WHERE user_id = $1', [userId]);
+        if (res.rows.length === 0) {
+          return { error: 'Wallet not found' };
+        }
+        return res.rows[0];
+      } catch (err) {
+        fastify.log.error(err);
+        reply.status(500).send({ error: 'Database error' });
+      }
+    });
 
-   ReactDOM.createRoot(document.getElementById('root')).render(
-     <React.StrictMode>
-       <App />
-     </React.StrictMode>
-   );
+    fastify.post('/signal/:userId/:symbol', async (request, reply) => {
+      const { userId, symbol } = request.params;
+      const exchange = new ccxt.binance();
+      try {
+        const ohlcv = await exchange.fetchOHLCV(symbol + '/USDT', '1h', undefined, 100);
+        const closes = ohlcv.map(candle => candle[4]);
 
+        // Простой сигнал
+        const signal = closes[closes.length - 1] > closes[closes.length - 2] ? 'BUY' : 'SELL';
 
+        // Обновление баланса
+        await client.query('UPDATE wallets SET balance = balance + 0.1 WHERE user_id = $1', [userId]);
+        const res = await client.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
 
+        return { signal, newBalance: res.rows[0].balance };
+      } catch (err) {
+        fastify.log.error(err);
+        reply.status(500).send({ error: 'Signal processing error' });
+      }
+    });
 
+    // Запуск сервера
+    await fastify.listen({ port: 3000 });
+    console.log('Server running at http://localhost:3000');
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
+  }
+}
 
-app.jsx:
-import WalletForm from './components/WalletForm';
-
-   function App() {
-     return (
-       <div className="p-4">
-         <h1>BTC Signals</h1>
-         <WalletForm userId="12345" />
-       </div>
-     );
-   }
-
-   export default App;
-
-
-index.css
-@tailwind base;
-   @tailwind components;
-   @tailwind utilities;
-
-
-
-
-
-
-
-
-
-
-
-
-
+start();
