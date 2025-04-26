@@ -1,3 +1,15 @@
+CREATE DATABASE crypto_signals;
+\c crypto_signals
+CREATE TABLE wallets (
+  user_id VARCHAR(50) PRIMARY KEY,
+  address VARCHAR(100),
+  mnemonic TEXT,
+  balance FLOAT DEFAULT 0
+);
+
+
+
+
 require('dotenv').config();
 const fastify = require('fastify')({ logger: true });
 const { Client } = require('pg');
