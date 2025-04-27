@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
      const [error, setError] = useState(null);
 
      useEffect(() => {
-       fetch(`https://abcd-1234.ngrok-free.app/api/wallet/${userId}`, {
+       fetch(`http://localhost:3001/api/wallet/${userId}`, {
          mode: 'cors',
          headers: {
            'Content-Type': 'application/json',
@@ -20,14 +20,14 @@ import { useState, useEffect } from 'react';
            return res.json();
          })
          .then(data => {
+           console.log('API response:', data); // Для отладки
            if (data.error) {
              setError(data.error);
              console.error('API error:', data.error);
              return;
            }
-           setAddress(data.address);
-           setBalance(data.balance);
-           console.log('Wallet data:', data);
+           setAddress(data.address || '');
+           setBalance(data.balance || 0);
          })
          .catch(error => {
            setError(error.message);
