@@ -1,3 +1,98 @@
+App.jsx:
+import { useState, useEffect } from 'react';
+import { useTelegram } from './telegram';
+import CountrySelector from './components/CountrySelector';
+import ResourceSelector from './components/ResourceSelector';
+import BalanceModal from './components/BalanceModal';
+import axios from 'axios';
+
+function App() {
+  const { tg, user } = useTelegram();
+  const [country, setCountry] = useState('');
+  const [resource, setResource] = useState('');
+  const [balance, setBalance] = useState(null);
+  const [address, setAddress] = useState('');
+  const [showModal, setShowModal] = useState(false);
+
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    tg.ready();
+    tg.MainButton.setText('Купить').show().onClick(handleBuy);
+    fetchBalance();
+  }, []);
+
+  const fetchBalance = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/balance/${user?.id}`, {
+        headers: { 'telegram-init-data': tg.initData },
+      });
+      setBalance(res.data.balance);
+      setAddress(res.data.address);
+    } catch (err) {
+      tg.showPopup({ message: 'Ошибка загрузки баланса' });
+    }
+  };
+
+  const handleBuy = async () => {
+    if (!country || !resource) {
+      tg.showPopup({ message: 'Выберите страну и ресурс' });
+      return;
+    }
+    try {
+      const res = await axios.post(
+        `${API_URL}/buy`,
+        { telegram_id: user?.id, country, resource },
+        { headers: { 'telegram-init-data': tg.initData } }
+      );
+      if (res.data.success) {
+        tg.showPopup({ message: `Код: ${res.data.code}` });
+        fetchBalance();
+      } else {
+        setShowModal(true);
+      }
+    } catch (err) {
+      tg.showPopup({ message: 'Ошибка покупки' });
+    }
+  };
+
+  const handleTopUp = async () => {
+    try {
+      const res = await axios.post(`${API_URL}/generate-address/${user?.id}`, null, {
+        headers: { 'telegram-init-data': tg.initData },
+      });
+      setAddress(res.data.address);
+      setShowModal(true);
+    } catch (err) {
+      tg.showPopup({ message: 'Ошибка генерации адреса' });
+    }
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4 text-center">SimCard Mini App</h1>
+      <CountrySelector onSelect={setCountry} />
+      <ResourceSelector onSelect={setResource} />
+      <div className="mt-4">
+        <p className="text-lg">Баланс: {balance !== null ? `${balance} BTC` : 'Загрузка...'}</p>
+      </div>
+      {showModal && (
+        <BalanceModal
+          address={address}
+          onClose={() => setShowModal(false)}
+          onCopy={() => navigator.clipboard.writeText(address)}
+        />
+      )}
+    </div>
+  );
+}
+
+export default App;
+
+
+
+
+
 routes:
 const express = require('express');
 const db = require('./db');
