@@ -1,3 +1,120 @@
+const express = require('express');
+const cors = require('cors');
+
+const app = express();
+const port = 3001;
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type']
+}));
+app.use(express.json());
+
+// Заглушка базы данных
+const wallets = {
+  '12345': { user_id: '12345', address: 'test_address_12345', balance: 10 }
+};
+
+const simCards = [
+  { id: 1, country: 'USA', price: 1, duration: 30 },
+  { id: 2, country: 'UK', price: 1.5, duration: 30 },
+  { id: 3, country: 'Russia', price: 0.8, duration: 15 }
+];
+
+const userSimCards = {
+  '12345': [
+    { id: 1, number: '+1-555-123-4567', country: 'USA', status: 'Active', expiry: '2025-05-27' },
+    { id: 2, number: '+44-791-234-5678', country: 'UK', status: 'Inactive', expiry: '2025-04-30' }
+  ]
+};
+
+// Получить кошелёк
+app.get('/api/wallet/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const wallet = wallets[userId];
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+    res.json(wallet);
+  } catch (error) {
+    console.error('Error fetching wallet:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Получить каталог SIM-карт
+app.get('/api/sim-cards', async (req, res) => {
+  try {
+    res.json(simCards);
+  } catch (error) {
+    console.error('Error fetching SIM cards:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Купить SIM-карту
+app.post('/api/sim-cards/purchase', async (req, res) => {
+  try {
+    const { simId, userId } = req.body;
+    const wallet = wallets[userId];
+    const sim = simCards.find(s => s.id === simId);
+
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+    if (!sim) {
+      return res.status(404).json({ error: 'SIM card not found' });
+    }
+    if (wallet.balance < sim.price) {
+      return res.status(400).json({ error: 'Insufficient balance' });
+    }
+
+    // Обновить баланс
+    wallet.balance -= sim.price;
+
+    // Добавить SIM-карту пользователю
+    const newSim = {
+      id: sim.id,
+      number: `+${Math.floor(100000000 + Math.random() * 900000000)}`, // Случайный номер
+      country: sim.country,
+      status: 'Active',
+      expiry: new Date(Date.now() + sim.duration * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    };
+
+    if (!userSimCards[userId]) {
+      userSimCards[userId] = [];
+    }
+    userSimCards[userId].push(newSim);
+
+    res.json({ message: 'SIM card purchased', sim: newSim });
+  } catch (error) {
+    console.error('Error purchasing SIM card:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Получить купленные SIM-карты
+app.get('/api/sim-cards/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const userSims = userSimCards[userId] || [];
+    res.json(userSims);
+  } catch (error) {
+    console.error('Error fetching user SIM cards:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
+});
+
+
+
+
+
 App.jsx:
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
