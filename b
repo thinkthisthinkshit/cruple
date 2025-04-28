@@ -1,146 +1,99 @@
-const express = require('express');
-const cors = require('cors');
-
-const app = express();
-const port = 3001;
-
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type']
-}));
-app.use(express.json());
-
-// Заглушка базы данных
-const wallets = {
-  '12345': { user_id: '12345', address: 'test_address_12345', balance: 10 }
-};
-
-const simCards = [
-  { id: 1, country: 'USA', price: 1, duration: 30 },
-  { id: 2, country: 'UK', price: 1.5, duration: 30 },
-  { id: 3, country: 'Russia', price: 0.8, duration: 15 }
-];
-
-const userSimCards = {
-  '12345': [
-    { id: 1, number: '+1-555-123-4567', country: 'USA', status: 'Active', expiry: '2025-05-27' },
-    { id: 2, number: '+44-791-234-5678', country: 'UK', status: 'Inactive', expiry: '2025-04-30' }
-  ]
-};
-
-// Получить кошелёк
-app.get('/api/wallet/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const wallet = wallets[userId];
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
-    }
-    res.json(wallet);
-  } catch (error) {
-    console.error('Error fetching wallet:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Получить каталог SIM-карт
-app.get('/api/sim-cards', async (req, res) => {
-  try {
-    res.json(simCards);
-  } catch (error) {
-    console.error('Error fetching SIM cards:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Купить SIM-карту
-app.post('/api/sim-cards/purchase', async (req, res) => {
-  try {
-    const { simId, userId } = req.body;
-    const wallet = wallets[userId];
-    const sim = simCards.find(s => s.id === simId);
-
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
-    }
-    if (!sim) {
-      return res.status(404).json({ error: 'SIM card not found' });
-    }
-    if (wallet.balance < sim.price) {
-      return res.status(400).json({ error: 'Insufficient balance' });
-    }
-
-    // Обновить баланс
-    wallet.balance -= sim.price;
-
-    // Добавить SIM-карту пользователю
-    const newSim = {
-      id: sim.id,
-      number: `+${Math.floor(100000000 + Math.random() * 900000000)}`, // Случайный номер
-      country: sim.country,
-      status: 'Active',
-      expiry: new Date(Date.now() + sim.duration * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    };
-
-    if (!userSimCards[userId]) {
-      userSimCards[userId] = [];
-    }
-    userSimCards[userId].push(newSim);
-
-    res.json({ message: 'SIM card purchased', sim: newSim });
-  } catch (error) {
-    console.error('Error purchasing SIM card:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Получить купленные SIM-карты
-app.get('/api/sim-cards/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const userSims = userSimCards[userId] || [];
-    res.json(userSims);
-  } catch (error) {
-    console.error('Error fetching user SIM cards:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
-});
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SimCard Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>
 
 
 
 
 App.jsx:
-import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import SimCardForm from './components/SimCardForm';
-import SimCardCatalog from './components/SimCardCatalog';
-import MySimCards from './components/MySimCards';
+import { useState, useEffect } from 'react';
+import { useTelegram } from './telegram';
+import CountrySelector from './components/CountrySelector';
+import ResourceSelector from './components/ResourceSelector';
+import BalanceModal from './components/BalanceModal';
+import axios from 'axios';
 
 function App() {
-  const [userId] = useState('12345'); // Тестовый userId, позже из Telegram.initData
+  const { tg, user } = useTelegram();
+  const [country, setCountry] = useState('');
+  const [resource, setResource] = useState('');
+  const [balance, setBalance] = useState(null);
+  const [address, setAddress] = useState('');
+  const [showModal, setShowModal] = useState(false);
+
+  useEffect(() => {
+    tg.ready();
+    tg.MainButton.setText('Купить').show().onClick(handleBuy);
+    fetchBalance();
+  }, []);
+
+  const fetchBalance = async () => {
+    try {
+      const res = await axios.get(`http://localhost:5000/balance/${user?.id}`);
+      setBalance(res.data.balance);
+      setAddress(res.data.address);
+    } catch (err) {
+      tg.showPopup({ message: 'Ошибка загрузки баланса' });
+    }
+  };
+
+  const handleBuy = async () => {
+    if (!country || !resource) {
+      tg.showPopup({ message: 'Выберите страну и ресурс' });
+      return;
+    }
+    try {
+      const res = await axios.post('http://localhost:5000/buy', {
+        telegram_id: user?.id,
+        country,
+        resource,
+      });
+      if (res.data.success) {
+        tg.showPopup({ message: `Код: ${res.data.code}` });
+        fetchBalance();
+      } else {
+        setShowModal(true);
+      }
+    } catch (err) {
+      tg.showPopup({ message: 'Ошибка покупки' });
+    }
+  };
+
+  const handleTopUp = async () => {
+    try {
+      const res = await axios.post(`http://localhost:5000/generate-address/${user?.id}`);
+      setAddress(res.data.address);
+      setShowModal(true);
+    } catch (err) {
+      tg.showPopup({ message: 'Ошибка генерации адреса' });
+    }
+  };
 
   return (
-    <Router>
-      <div className="min-h-screen bg-telegram-bg p-4">
-        <h1 className="text-2xl font-bold text-telegram-blue mb-4">Virtual SIM App</h1>
-        <nav className="mb-4 flex space-x-4">
-          <Link to="/" className="text-telegram-blue hover:underline">Wallet</Link>
-          <Link to="/catalog" className="text-telegram-blue hover:underline">Catalog</Link>
-          <Link to="/my-sim-cards" className="text-telegram-blue hover:underline">My SIMs</Link>
-        </nav>
-        <Routes>
-          <Route path="/" element={<SimCardForm userId={userId} />} />
-          <Route path="/catalog" element={<SimCardCatalog userId={userId} />} />
-          <Route path="/my-sim-cards" element={<MySimCards userId={userId} />} />
-        </Routes>
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4 text-center">SimCard Mini App</h1>
+      <CountrySelector onSelect={setCountry} />
+      <ResourceSelector onSelect={setResource} />
+      <div className="mt-4">
+        <p className="text-lg">Баланс: {balance !== null ? `${balance} BTC` : 'Загрузка...'}</p>
       </div>
-    </Router>
+      {showModal && (
+        <BalanceModal
+          address={address}
+          onClose={() => setShowModal(false)}
+          onCopy={() => navigator.clipboard.writeText(address)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -149,226 +102,13 @@ export default App;
 
 
 
+index.js:
+import React from 'react';
+import ReactDOM from 'react-dom';
+import './index.css';
+import App from './App';
 
-
-
-SimCardForm.jsx:
-import { useState, useEffect } from 'react';
-import QRCode from 'qrcode.react';
-
-function SimCardForm({ userId }) {
-  const [address, setAddress] = useState('');
-  const [balance, setBalance] = useState(0);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    fetch(`https://d0ce-109-206-241-94.ngrok-free.app/api/wallet/${userId}`, {
-      mode: 'cors',
-      headers: {
-        'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true'
-      },
-    })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.json();
-      })
-      .then(data => {
-        console.log('API response:', data);
-        if (data.error) {
-          setError(data.error);
-          return;
-        }
-        setAddress(data.address || '');
-        setBalance(data.balance || 0);
-      })
-      .catch(error => {
-        setError(error.message);
-        console.error('Failed to fetch wallet:', error);
-      });
-  }, [userId]);
-
-  const topUp = () => {
-    if (address) {
-      window.Telegram.WebApp.openTelegramLink(
-        `https://t.me/wallet?start=send&address=${encodeURIComponent(address)}&amount=1`
-      );
-    } else {
-      setError('No wallet address available');
-    }
-  };
-
-  return (
-    <div className="bg-white p-4 rounded shadow">
-      {error && <p className="text-red-500 mb-2">Error: {error}</p>}
-      <h2 className="text-xl font-bold mb-2">Your Wallet</h2>
-      <p className="text-lg">Balance: {balance} TON</p>
-      <p className="text-sm break-all">Address: {address}</p>
-      {address && (
-        <div className="mt-2">
-          <QRCode value={address} size={128} />
-        </div>
-      )}
-      <button
-        className="mt-4 bg-blue-500 text-white p-2 rounded hover:bg-blue-600 disabled:bg-gray-400"
-        onClick={topUp}
-        disabled={!address}
-      >
-        Top Up
-      </button>
-    </div>
-  );
-}
-
-export default SimCardForm;
-
-
-
-
-
-
-SimCardCatalog.jsx:
-import { useState, useEffect } from 'react';
-
-function SimCardCatalog() {
-  const [simCards, setSimCards] = useState([]);
-  const [error, setError] = useState(null);
-  const [filterCountry, setFilterCountry] = useState('');
-
-  useEffect(() => {
-    fetch('https://d0ce-109-206-241-94.ngrok-free.app/api/sim-cards', {
-      mode: 'cors',
-      headers: {
-        'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true'
-      },
-    })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.json();
-      })
-      .then(data => {
-        setSimCards(data);
-      })
-      .catch(error => {
-        setError(error.message);
-        console.error('Failed to fetch SIM cards:', error);
-      });
-  }, []);
-
-  const filteredSimCards = filterCountry
-    ? simCards.filter(sim => sim.country.toLowerCase().includes(filterCountry.toLowerCase()))
-    : simCards;
-
-  const purchaseSim = async (simId) => {
-    try {
-      const res = await fetch('https://d0ce-109-206-241-94.ngrok-free.app/api/sim-cards/purchase', {
-        method: 'POST',
-        mode: 'cors',
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true'
-        },
-        body: JSON.stringify({ simId, userId: '12345' }) // Тестовый userId
-      });
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      window.Telegram.WebApp.showAlert('SIM card purchased!');
-    } catch (error) {
-      setError(error.message);
-    }
-  };
-
-  return (
-    <div className="bg-white p-4 rounded shadow">
-      {error && <p className="text-red-500 mb-2">Error: {error}</p>}
-      <h2 className="text-xl font-bold mb-2">SIM Card Catalog</h2>
-      <input
-        type="text"
-        placeholder="Filter by country"
-        className="mb-4 p-2 border rounded w-full"
-        value={filterCountry}
-        onChange={e => setFilterCountry(e.target.value)}
-      />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredSimCards.map(sim => (
-          <div key={sim.id} className="p-4 border rounded">
-            <p><strong>Country:</strong> {sim.country}</p>
-            <p><strong>Price:</strong> {sim.price} TON</p>
-            <p><strong>Duration:</strong> {sim.duration} days</p>
-            <button
-              className="mt-2 bg-green-500 text-white p-2 rounded hover:bg-green-600"
-              onClick={() => purchaseSim(sim.id)}
-            >
-              Buy
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default SimCardCatalog;
-
-
-
-
-
-
-
-
-MySimCards.jsx:
-import { useState, useEffect } from 'react';
-
-function MySimCards({ userId }) {
-  const [simCards, setSimCards] = useState([]);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    fetch(`https://d0ce-109-206-241-94.ngrok-free.app/api/sim-cards/${userId}`, {
-      mode: 'cors',
-      headers: {
-        'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true'
-      },
-    })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.json();
-      })
-      .then(data => {
-        setSimCards(data);
-      })
-      .catch(error => {
-        setError(error.message);
-        console.error('Failed to fetch SIM cards:', error);
-      });
-  }, [userId]);
-
-  return (
-    <div className="bg-white p-4 rounded shadow">
-      {error && <p className="text-red-500 mb-2">Error: {error}</p>}
-      <h2 className="text-xl font-bold mb-2">My SIM Cards</h2>
-      {simCards.length === 0 ? (
-        <p>No SIM cards purchased yet.</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {simCards.map(sim => (
-            <div key={sim.id} className="p-4 border rounded">
-              <p><strong>Number:</strong> {sim.number}</p>
-              <p><strong>Country:</strong> {sim.country}</p>
-              <p><strong>Status:</strong> {sim.status}</p>
-              <p><strong>Expires:</strong> {new Date(sim.expiry).toLocaleDateString()}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default MySimCards;
-
+ReactDOM.render(<App />, document.getElementById('root'));
 
 
 index.css:
@@ -376,63 +116,375 @@ index.css:
 @tailwind components;
 @tailwind utilities;
 
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+
+
+telegram.js:
+import { useEffect } from 'react';
+
+export const useTelegram = () => {
+  const tg = window.Telegram.WebApp;
+
+  useEffect(() => {
+    tg.expand();
+  }, []);
+
+  return {
+    tg,
+    user: tg.initDataUnsafe?.user,
+  };
+};
+
+
+
+
+CountrySelector.jsx:
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const countries = [
+  { id: 'us', name: 'США' },
+  { id: 'ru', name: 'Россия' },
+  { id: 'uk', name: 'Великобритания' },
+];
+
+function CountrySelector({ onSelect }) {
+  const [selected, setSelected] = useState('');
+
+  useEffect(() => {
+    onSelect(selected);
+  }, [selected]);
+
+  return (
+    <div className="mb-4">
+      <label className="block text-lg mb-2">Страна</label>
+      <select
+        className="w-full p-2 border rounded bg-white dark:bg-gray-800 dark:text-white"
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+      >
+        <option value="">Выберите страну</option>
+        {countries.map((country) => (
+          <option key={country.id} value={country.id}>
+            {country.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+export default CountrySelector;
+
+
+
+ResourceSelector.jsx:
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const resources = [
+  { id: 'whatsapp', name: 'WhatsApp' },
+  { id: 'telegram', name: 'Telegram' },
+  { id: 'other', name: 'Другой' },
+];
+
+function ResourceSelector({ onSelect }) {
+  const [selected, setSelected] = useState('');
+
+  useEffect(() => {
+    onSelect(selected);
+  }, [selected]);
+
+  return (
+    <div className="mb-4">
+      <label className="block text-lg mb-2">Ресурс</label>
+      <select
+        className="w-full p-2 border rounded bg-white dark:bg-gray-800 dark:text-white"
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+      >
+        <option value="">Выберите ресурс</option>
+        {resources.map((resource) => (
+          <option key={resource.id} value={resource.id}>
+            {resource.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+export default ResourceSelector;
+
+
+
+
+BalanceModal.jsx:
+import QRCode from 'qrcode.react';
+
+function BalanceModal({ address, onClose, onCopy }) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-sm w-full">
+        <h2 className="text-lg font-bold mb-4">Пополнить баланс</h2>
+        <QRCode value={`bitcoin:${address}`} className="mx-auto mb-4" />
+        <p className="text-sm text-center mb-4 break-all">{address}</p>
+        <div className="flex justify-between">
+          <button
+            className="bg-blue-500 text-white px-4 py-2 rounded"
+            onClick={onCopy}
+          >
+            Скопировать
+          </button>
+          <button
+            className="bg-gray-500 text-white px-4 py-2 rounded"
+            onClick={onClose}
+          >
+            Закрыть
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default BalanceModal;
 
 
 
 
 
 
-
-vite.config.js:
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 5173,
+client/package.json:
+{
+  "name": "simcard-mini-app-client",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@vkruglikov/react-telegram-web-app": "^2.1.10",
+    "axios": "^1.7.2",
+    "qrcode.react": "^3.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
-  build: {
-    minify: 'esbuild',
-    chunkSizeWarningLimit: 1000,
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build"
   },
+  "devDependencies": {
+    "tailwindcss": "^3.4.10",
+    "react-scripts": "5.0.1"
+  }
+}
+
+
+
+
+
+client/tailwind.js:
+module.exports = {
+  content: ['./src/**/*.{js,jsx,ts,tsx}'],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+  darkMode: 'class',
+};
+
+
+
+
+BACKEND:
+
+
+
+server.js:
+const express = require('express');
+const cors = require('cors');
+const routes = require('./src/routes');
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+app.use('/', routes);
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
+
+db.js:
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database(':memory:');
+
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE users (
+      telegram_id TEXT PRIMARY KEY,
+      wallet_index INTEGER,
+      address TEXT,
+      balance REAL
+    )
+  `);
+  db.run(`
+    CREATE TABLE purchases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_id TEXT,
+      country TEXT,
+      resource TEXT,
+      code TEXT
+    )
+  `);
 });
 
+module.exports = db;
+
+
+
+
+wallet.js:
+const bip39 = require('bip39');
+const bitcoin = require('bitcoinjs-lib');
+const axios = require('axios');
+
+const mnemonic = process.env.SEED_PHRASE;
+const seed = bip39.mnemonicToSeedSync(mnemonic);
+const root = bitcoin.bip32.fromSeed(seed);
+
+async function generateAddress(index) {
+  const path = `m/44'/0'/0'/0/${index}`;
+  const keyPair = root.derivePath(path);
+  const { address } = bitcoin.payments.p2pkh({ pubkey: keyPair.publicKey });
+  return address;
+}
+
+async function getBalance(address) {
+  try {
+    const res = await axios.get(`https://api.blockcypher.com/v1/btc/main/addrs/${address}/balance`);
+    return res.data.final_balance / 1e8; // Convert satoshis to BTC
+  } catch (err) {
+    console.error('Balance fetch error:', err);
+    return 0;
+  }
+}
+
+module.exports = { generateAddress, getBalance };
 
 
 
 
 
-index.html:
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Virtual SIM App</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-</head>
-<body>
-  <div id="root"></div>
-  <script type="module" src="/src/main.jsx"></script>
-</body>
-</html>
+routes.js:
+const express = require('express');
+const db = require('./db');
+const { generateAddress, getBalance } = require('./wallet');
+
+const router = express.Router();
+
+router.get('/countries', (req, res) => {
+  res.json([
+    { id: 'us', name: 'США' },
+    { id: 'ru', name: 'Россия' },
+    { id: 'uk', name: 'Великобритания' },
+  ]);
+});
+
+router.get('/resources', (req, res) => {
+  res.json([
+    { id: 'whatsapp', name: 'WhatsApp' },
+    { id: 'telegram', name: 'Telegram' },
+    { id: 'other', name: 'Другой' },
+  ]);
+});
+
+router.post('/generate-address/:telegram_id', async (req, res) => {
+  const { telegram_id } = req.params;
+  db.get('SELECT wallet_index FROM users WHERE telegram_id = ?', [telegram_id], async (err, row) => {
+    if (row) {
+      db.get('SELECT address FROM users WHERE telegram_id = ?', [telegram_id], (err, row) => {
+        res.json({ address: row.address });
+      });
+    } else {
+      const index = Math.floor(Math.random() * 1000000);
+      const address = await generateAddress(index);
+      db.run(
+        'INSERT INTO users (telegram_id, wallet_index, address, balance) VALUES (?, ?, ?, ?)',
+        [telegram_id, index, address, 0],
+        () => res.json({ address })
+      );
+    }
+  });
+});
+
+router.get('/balance/:telegram_id', async (req, res) => {
+  const { telegram_id } = req.params;
+  db.get('SELECT address FROM users WHERE telegram_id = ?', [telegram_id], async (err, row) => {
+    if (!row) {
+      return res.json({ balance: 0, address: '' });
+    }
+    const balance = await getBalance(row.address);
+    db.run('UPDATE users SET balance = ? WHERE telegram_id = ?', [balance, telegram_id]);
+    res.json({ balance, address: row.address });
+  });
+});
+
+router.post('/buy', async (req, res) => {
+  const { telegram_id, country, resource } = req.body;
+  db.get('SELECT balance FROM users WHERE telegram_id = ?', [telegram_id], async (err, row) => {
+    if (!row || row.balance < 0.0001) {
+      return res.json({ success: false });
+    }
+    // Mock SMS code (replace with SMS-Activate API)
+    const code = `SMS-${Math.random().toString(36).slice(2, 8)}`;
+    db.run(
+      'INSERT INTO purchases (telegram_id, country, resource, code) VALUES (?, ?, ?, ?)',
+      [telegram_id, country, resource, code]
+    );
+    db.run(
+      'UPDATE users SET balance = balance - 0.0001 WHERE telegram_id = ?',
+      [telegram_id]
+    );
+    res.json({ success: true, code });
+  });
+});
+
+module.exports = router;
+
+
+
+
+.env:
+SEED_PHRASE=your_secure_seed_phrase_here
 
 
 
 
 
-main.jsx:
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-import './index.css';
+server.json:
+{
+  "name": "simcard-mini-app-server",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "bip39": "^3.1.0",
+    "bitcoinjs-lib": "^6.1.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "sqlite3": "^5.1.7"
+  }
+}
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+
+
 
 
 
