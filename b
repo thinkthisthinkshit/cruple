@@ -1,126 +1,76 @@
 App.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from './telegram';
-import CountrySelector from './components/CountrySelector';
-import ResourceSelector from './components/ResourceSelector';
-import BalanceModal from './components/BalanceModal';
-import Profile from './components/Profile';
-import axios from 'axios';
+import CountryList from './components/CountryList';
 
 function App() {
   const { tg, user } = useTelegram();
-  const [country, setCountry] = useState('');
-  const [resource, setResource] = useState('');
-  const [balance, setBalance] = useState(null);
-  const [address, setAddress] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
-  const [showProfile, setShowProfile] = useState(false);
-
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+  const [language, setLanguage] = useState('ru');
+  const [showCountryList, setShowCountryList] = useState(false);
 
   useEffect(() => {
     if (tg) {
       tg.ready();
-      tg.MainButton.setText('Купить').show().onClick(handleBuy);
-      tg.BackButton.onClick(() => setShowProfile(false));
-      fetchBalance();
+      tg.BackButton.onClick(() => setShowCountryList(false));
     }
-  }, [tg, showProfile]);
+  }, [tg, showCountryList]);
 
-  const fetchBalance = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user?.id}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setBalance(res.data.balance);
-      setAddress(res.data.address);
-    } catch (err) {
-      console.error('Fetch balance error:', err);
-      tg?.showPopup({ message: `Ошибка загрузки баланса: ${err.message}` });
-    }
+  const toggleLanguage = () => {
+    setLanguage(language === 'ru' ? 'en' : 'ru');
   };
 
-  const handleBuy = async () => {
-    if (!country || !resource) {
-      tg?.showPopup({ message: 'Выберите страну и ресурс' });
-      return;
-    }
-    try {
-      const res = await axios.post(
-        `${API_URL}/buy`,
-        { telegram_id: user?.id, country, resource },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      if (res.data.success) {
-        tg?.showPopup({ message: `Код: ${res.data.code}` });
-        fetchBalance();
-      } else {
-        setShowModal(true);
-      }
-    } catch (err) {
-      console.error('Buy error:', err);
-      tg?.showPopup({ message: `Ошибка покупки: ${err.message}` });
-    }
+  const texts = {
+    ru: {
+      title: 'Виртуальные сим-карты',
+      subtitle: 'Более 70 стран от 0.01 €',
+      buy: 'Купить',
+      purchases: 'Мои покупки',
+    },
+    en: {
+      title: 'Virtual SIM Cards',
+      subtitle: 'Over 70 countries from 0.01 €',
+      buy: 'Buy',
+      purchases: 'My Purchases',
+    },
   };
 
-  const handleTopUp = async () => {
-    try {
-      const res = await axios.post(`${API_URL}/generate-address/${user?.id}`, null, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setAddress(res.data.address);
-      setShowModal(true);
-    } catch (err) {
-      console.error('Generate address error:', err);
-      tg?.showPopup({ message: `Ошибка генерации адреса: ${err.message}` });
-    }
-  };
-
-  if (showProfile) {
-    return (
-      <Profile
-        username={user?.username || 'Unknown'}
-        selectedCrypto={selectedCrypto}
-        setSelectedCrypto={setSelectedCrypto}
-        balance={balance}
-        onBack={() => setShowProfile(false)}
-      />
-    );
+  if (showCountryList) {
+    return <CountryList language={language} onBack={() => setShowCountryList(false)} />;
   }
 
   return (
     <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">SimCard Mini App</h1>
-      <button
-        className="mb-4 bg-blue-500 text-white px-4 py-2 rounded"
-        onClick={() => setShowProfile(true)}
-      >
-        Profile
-      </button>
-      <CountrySelector onSelect={setCountry} />
-      <ResourceSelector onSelect={setResource} />
-      <div className="mt-4">
-        <p className="text-lg">Баланс: {balance !== null ? `${balance} ${selectedCrypto}` : 'Загрузка...'}</p>
+      <div className="flex justify-between mb-4">
+        <button
+          className="bg-gray-200 px-3 py-1 rounded"
+          onClick={toggleLanguage}
+        >
+          {language.toUpperCase()}
+        </button>
+        <div className="text-lg font-semibold">
+          {user?.first_name || 'User'}
+        </div>
       </div>
-      {showModal && (
-        <BalanceModal
-          address={address}
-          onClose={() => setShowModal(false)}
-          onCopy={() => navigator.clipboard.writeText(address)}
-        />
-      )}
+      <h1 className="text-2xl font-bold text-center mb-2">
+        {texts[language].title}
+      </h1>
+      <p className="text-center text-gray-600 mb-6">
+        {texts[language].subtitle}
+      </p>
+      <div className="flex flex-col gap-4">
+        <button
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+          onClick={() => setShowCountryList(true)}
+        >
+          {texts[language].buy}
+        </button>
+        <button
+          className="bg-gray-500 text-white px-4 py-2 rounded"
+          onClick={() => tg?.showPopup({ message: 'Покупки пока не реализованы' })}
+        >
+          {texts[language].purchases}
+        </button>
+      </div>
     </div>
   );
 }
@@ -131,19 +81,32 @@ export default App;
 
 
 
+CountryList.jsx:
+import { useState, useEffect } from 'react';
+import axios from 'axios';
 
-Profile.jsx:
-import { useState } from 'react';
-import CryptoModal from './CryptoModal';
+function CountryList({ language, onBack }) {
+  const [countries, setCountries] = useState([]);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-const cryptoIcons = {
-  BTC: '₿',
-  ETH: 'Ξ',
-  USDT: '₮',
-};
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/countries`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+        });
+        setCountries(res.data);
+      } catch (err) {
+        console.error('Fetch countries error:', err);
+      }
+    };
+    fetchCountries();
+  }, []);
 
-function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack }) {
-  const [showCryptoModal, setShowCryptoModal] = useState(false);
+  const texts = {
+    ru: { title: 'Выберите страну', back: 'Назад' },
+    en: { title: 'Select Country', back: 'Back' },
+  };
 
   return (
     <div className="p-4 max-w-md mx-auto">
@@ -151,122 +114,32 @@ function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack 
         className="mb-4 bg-gray-500 text-white px-4 py-2 rounded"
         onClick={onBack}
       >
-        Назад
+        {texts[language].back}
       </button>
-      <h1 className="text-2xl font-bold mb-4 text-center">Профиль</h1>
-      <p className="text-lg mb-4">Пользователь: @{username}</p>
-      <button
-        className="w-full bg-blue-500 text-white px-4 py-2 rounded flex items-center justify-center"
-        onClick={() => setShowCryptoModal(true)}
-      >
-        <span>
-          {balance !== null ? `${balance.toFixed(8)}` : '0.00000000'} {cryptoIcons[selectedCrypto]}
-        </span>
-      </button>
-      {showCryptoModal && (
-        <CryptoModal
-          onSelect={(crypto) => {
-            setSelectedCrypto(crypto);
-            setShowCryptoModal(false);
-          }}
-          onClose={() => setShowCryptoModal(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-export default Profile;
-
-
-
-
-
-
-
-CryptoModal.jsx:
-function CryptoModal({ onSelect, onClose }) {
-  const cryptos = [
-    { id: 'BTC', name: 'Bitcoin', icon: '₿' },
-    { id: 'ETH', name: 'Ethereum', icon: 'Ξ' },
-    { id: 'USDT', name: 'Tether', icon: '₮' },
-  ];
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="bg-white p-4 rounded-lg max-w-sm w-full">
-        <h2 className="text-xl font-bold mb-4">Выберите криптовалюту</h2>
-        {cryptos.map((crypto) => (
-          <button
-            key={crypto.id}
-            className="w-full mb-2 bg-gray-200 p-2 rounded flex items-center"
-            onClick={() => onSelect(crypto.id)}
+      <h1 className="text-2xl font-bold mb-4 text-center">
+        {texts[language].title}
+      </h1>
+      <div className="space-y-2">
+        {countries.map((country) => (
+          <div
+            key={country.id}
+            className="flex justify-between items-center p-2 bg-gray-100 rounded"
           >
-            <span className="mr-2">{crypto.icon}</span>
-            {crypto.name}
-          </button>
+            <span>{language === 'ru' ? country.name_ru : country.name_en}</span>
+            <span className="text-green-600">0.012 €</span>
+          </div>
         ))}
-        <button
-          className="w-full bg-red-500 text-white p-2 rounded"
-          onClick={onClose}
-        >
-          Закрыть
-        </button>
       </div>
     </div>
   );
 }
 
-export default CryptoModal;
-
-
-
-
-
-
-
-
-db.js:
-const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('simcard.db');
-
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      telegram_id TEXT PRIMARY KEY,
-      wallet_index INTEGER,
-      address TEXT,
-      balance REAL,
-      crypto TEXT DEFAULT 'BTC'
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS purchases (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      telegram_id TEXT,
-      country TEXT,
-      resource TEXT,
-      code TEXT
-    );
-  `);
-});
-
-module.exports = {
-  get: (query, params, callback) => db.get(query, params, callback),
-  run: (query, params, callback) => db.run(query, params, callback),
-};
-
-
-
-
-
-
+export default CountryList;
 
 
 
 
 routes.js:
-
 const express = require('express');
 const db = require('./db');
 const { generateAddress, getBalance } = require('./wallet');
@@ -274,11 +147,79 @@ const { generateAddress, getBalance } = require('./wallet');
 const router = express.Router();
 
 router.get('/countries', (req, res) => {
-  res.json([
-    { id: 'us', name: 'США' },
-    { id: 'ru', name: 'Россия' },
-    { id: 'uk', name: 'Великобритания' },
-  ]);
+  const countries = [
+    { id: 'us', name_en: 'United States', name_ru: 'США' },
+    { id: 'ru', name_en: 'Russia', name_ru: 'Россия' },
+    { id: 'uk', name_en: 'United Kingdom', name_ru: 'Великобритания' },
+    { id: 'fr', name_en: 'France', name_ru: 'Франция' },
+    { id: 'de', name_en: 'Germany', name_ru: 'Германия' },
+    { id: 'it', name_en: 'Italy', name_ru: 'Италия' },
+    { id: 'es', name_en: 'Spain', name_ru: 'Испания' },
+    { id: 'cn', name_en: 'China', name_ru: 'Китай' },
+    { id: 'jp', name_en: 'Japan', name_ru: 'Япония' },
+    { id: 'in', name_en: 'India', name_ru: 'Индия' },
+    { id: 'br', name_en: 'Brazil', name_ru: 'Бразилия' },
+    { id: 'ca', name_en: 'Canada', name_ru: 'Канада' },
+    { id: 'au', name_en: 'Australia', name_ru: 'Австралия' },
+    { id: 'za', name_en: 'South Africa', name_ru: 'Южная Африка' },
+    { id: 'mx', name_en: 'Mexico', name_ru: 'Мексика' },
+    { id: 'ar', name_en: 'Argentina', name_ru: 'Аргентина' },
+    { id: 'cl', name_en: 'Chile', name_ru: 'Чили' },
+    { id: 'co', name_en: 'Colombia', name_ru: 'Колумбия' },
+    { id: 'pe', name_en: 'Peru', name_ru: 'Перу' },
+    { id: 've', name_en: 'Venezuela', name_ru: 'Венесуэла' },
+    { id: 'eg', name_en: 'Egypt', name_ru: 'Египет' },
+    { id: 'ng', name_en: 'Nigeria', name_ru: 'Нигерия' },
+    { id: 'ke', name_en: 'Kenya', name_ru: 'Кения' },
+    { id: 'gh', name_en: 'Ghana', name_ru: 'Гана' },
+    { id: 'dz', name_en: 'Algeria', name_ru: 'Алжир' },
+    { id: 'ma', name_en: 'Morocco', name_ru: 'Марокко' },
+    { id: 'sa', name_en: 'Saudi Arabia', name_ru: 'Саудовская Аравия' },
+    { id: 'ae', name_en: 'United Arab Emirates', name_ru: 'ОАЭ' },
+    { id: 'tr', name_en: 'Turkey', name_ru: 'Турция' },
+    { id: 'pl', name_en: 'Poland', name_ru: 'Польша' },
+    { id: 'ua', name_en: 'Ukraine', name_ru: 'Украина' },
+    { id: 'by', name_en: 'Belarus', name_ru: 'Беларусь' },
+    { id: 'kz', name_en: 'Kazakhstan', name_ru: 'Казахстан' },
+    { id: 'uz', name_en: 'Uzbekistan', name_ru: 'Узбекистан' },
+    { id: 'ge', name_en: 'Georgia', name_ru: 'Грузия' },
+    { id: 'am', name_en: 'Armenia', name_ru: 'Армения' },
+    { id: 'az', name_en: 'Azerbaijan', name_ru: 'Азербайджан' },
+    { id: 'id', name_en: 'Indonesia', name_ru: 'Индонезия' },
+    { id: 'th', name_en: 'Thailand', name_ru: 'Таиланд' },
+    { id: 'vn', name_en: 'Vietnam', name_ru: 'Вьетнам' },
+    { id: 'ph', name_en: 'Philippines', name_ru: 'Филиппины' },
+    { id: 'my', name_en: 'Malaysia', name_ru: 'Малайзия' },
+    { id: 'sg', name_en: 'Singapore', name_ru: 'Сингапур' },
+    { id: 'kr', name_en: 'South Korea', name_ru: 'Южная Корея' },
+    { id: 'pk', name_en: 'Pakistan', name_ru: 'Пакистан' },
+    { id: 'bd', name_en: 'Bangladesh', name_ru: 'Бангладеш' },
+    { id: 'lk', name_en: 'Sri Lanka', name_ru: 'Шри-Ланка' },
+    { id: 'np', name_en: 'Nepal', name_ru: 'Непал' },
+    { id: 'mm', name_en: 'Myanmar', name_ru: 'Мьянма' },
+    { id: 'kh', name_en: 'Cambodia', name_ru: 'Камбоджа' },
+    { id: 'la', name_en: 'Laos', name_ru: 'Лаос' },
+    { id: 'se', name_en: 'Sweden', name_ru: 'Швеция' },
+    { id: 'no', name_en: 'Norway', name_ru: 'Норвегия' },
+    { id: 'fi', name_en: 'Finland', name_ru: 'Финляндия' },
+    { id: 'dk', name_en: 'Denmark', name_ru: 'Дания' },
+    { id: 'nl', name_en: 'Netherlands', name_ru: 'Нидерланды' },
+    { id: 'be', name_en: 'Belgium', name_ru: 'Бельгия' },
+    { id: 'at', name_en: 'Austria', name_ru: 'Австрия' },
+    { id: 'ch', name_en: 'Switzerland', name_ru: 'Швейцария' },
+    { id: 'gr', name_en: 'Greece', name_ru: 'Греция' },
+    { id: 'pt', name_en: 'Portugal', name_ru: 'Португалия' },
+    { id: 'ie', name_en: 'Ireland', name_ru: 'Ирландия' },
+    { id: 'cz', name_en: 'Czech Republic', name_ru: 'Чехия' },
+    { id: 'sk', name_en: 'Slovakia', name_ru: 'Словакия' },
+    { id: 'hu', name_en: 'Hungary', name_ru: 'Венгрия' },
+    { id: 'ro', name_en: 'Romania', name_ru: 'Румыния' },
+    { id: 'bg', name_en: 'Bulgaria', name_ru: 'Болгария' },
+    { id: 'hr', name_en: 'Croatia', name_ru: 'Хорватия' },
+    { id: 'rs', name_en: 'Serbia', name_ru: 'Сербия' },
+    { id: 'ba', name_en: 'Bosnia and Herzegovina', name_ru: 'Босния и Герцеговина' },
+  ];
+  res.json(countries);
 });
 
 router.get('/resources', (req, res) => {
@@ -353,158 +294,6 @@ router.post('/select-crypto/:telegram_id', async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-
-app.jsx:
-import { useState, useEffect } from 'react';
-import { useTelegram } from './telegram';
-import CountrySelector from './components/CountrySelector';
-import ResourceSelector from './components/ResourceSelector';
-import BalanceModal from './components/BalanceModal';
-import Profile from './components/Profile';
-import axios from 'axios';
-
-function App() {
-  const { tg, user } = useTelegram();
-  const [country, setCountry] = useState('');
-  const [resource, setResource] = useState('');
-  const [balance, setBalance] = useState(null);
-  const [address, setAddress] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
-  const [showProfile, setShowProfile] = useState(false);
-
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  useEffect(() => {
-    if (tg) {
-      tg.ready();
-      tg.MainButton.setText('Купить').show().onClick(handleBuy);
-      tg.BackButton.onClick(() => setShowProfile(false));
-      fetchBalance();
-    }
-  }, [tg, showProfile]);
-
-  const fetchBalance = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user?.id}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setBalance(res.data.balance);
-      setAddress(res.data.address);
-      setSelectedCrypto(res.data.crypto);
-    } catch (err) {
-      console.error('Fetch balance error:', err);
-      tg?.showPopup({ message: `Ошибка загрузки баланса: ${err.message}` });
-    }
-  };
-
-  const handleBuy = async () => {
-    if (!country || !resource) {
-      tg?.showPopup({ message: 'Выберите страну и ресурс' });
-      return;
-    }
-    try {
-      const res = await axios.post(
-        `${API_URL}/buy`,
-        { telegram_id: user?.id, country, resource },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      if (res.data.success) {
-        tg?.showPopup({ message: `Код: ${res.data.code}` });
-        fetchBalance();
-      } else {
-        setShowModal(true);
-      }
-    } catch (err) {
-      console.error('Buy error:', err);
-      tg?.showPopup({ message: `Ошибка покупки: ${err.message}` });
-    }
-  };
-
-  const handleTopUp = async () => {
-    try {
-      const res = await axios.post(`${API_URL}/generate-address/${user?.id}`, null, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setAddress(res.data.address);
-      setShowModal(true);
-    } catch (err) {
-      console.error('Generate address error:', err);
-      tg?.showPopup({ message: `Ошибка генерации адреса: ${err.message}` });
-    }
-  };
-
-  const handleSelectCrypto = async (crypto) => {
-    try {
-      await axios.post(
-        `${API_URL}/select-crypto/${user?.id}`,
-        { crypto },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      setSelectedCrypto(crypto);
-    } catch (err) {
-      console.error('Select crypto error:', err);
-      tg?.showPopup({ message: `Ошибка выбора криптовалюты: ${err.message}` });
-    }
-  };
-
-  if (showProfile) {
-    return (
-      <Profile
-        username={user?.username || 'Unknown'}
-        selectedCrypto={selectedCrypto}
-        setSelectedCrypto={handleSelectCrypto}
-        balance={balance}
-        onBack={() => setShowProfile(false)}
-      />
-    );
-  }
-
-  return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">SimCard Mini App</h1>
-      <button
-        className="mb-4 bg-blue-500 text-white px-4 py-2 rounded"
-        onClick={() => setShowProfile(true)}
-      >
-        Profile
-      </button>
-      <CountrySelector onSelect={setCountry} />
-      <ResourceSelector onSelect={setResource} />
-      <div className="mt-4">
-        <p className="text-lg">Баланс: {balance !== null ? `${balance} ${selectedCrypto}` : 'Загрузка...'}</p>
-      </div>
-      {showModal && (
-        <BalanceModal
-          address={address}
-          onClose={() => setShowModal(false)}
-          onCopy={() => navigator.clipboard.writeText(address)}
-        />
-      )}
-    </div>
-  );
-}
-
-export default App;
 
 
 
