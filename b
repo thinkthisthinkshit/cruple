@@ -1,3 +1,41 @@
+const express = require('express');
+const cors = require('cors');
+const routes = require('./src/routes');
+const axios = require('axios');
+
+const app = express();
+
+app.use(cors({
+  origin: ['https://frontend-abc123.ngrok.io', 'https://web.telegram.org'],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'telegram-init-data'],
+}));
+app.use(express.json());
+app.use('/', routes);
+
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const WEB_APP_URL = 'https://frontend-abc123.ngrok.io';
+
+axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
+  commands: [{ command: 'start', description: 'Открыть SimCard Mini App' }],
+}).catch(err => console.error('Ошибка настройки команд:', err));
+
+axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+  menu_button: {
+    type: 'web_app',
+    text: 'OPEN',
+    web_app: { url: WEB_APP_URL },
+  },
+}).catch(err => console.error('Ошибка настройки кнопки:', err));
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
+
+
+
+
 const bip39 = require('bip39');
 const { BIP32Factory } = require('bip32');
 const bitcoin = require('bitcoinjs-lib');
