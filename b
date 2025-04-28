@@ -1,3 +1,37 @@
+const bip39 = require('bip39');
+const { BIP32Factory } = require('bip32');
+const bitcoin = require('bitcoinjs-lib');
+const ecc = require('tiny-secp256k1');
+const axios = require('axios');
+
+const bip32 = BIP32Factory(ecc);
+const mnemonic = process.env.SEED_PHRASE;
+const seed = bip39.mnemonicToSeedSync(mnemonic);
+const root = bip32.fromSeed(seed);
+
+async function generateAddress(index) {
+  const path = `m/44'/0'/0'/0/${index}`;
+  const keyPair = root.derivePath(path);
+  const { address } = bitcoin.payments.p2pkh({ pubkey: keyPair.publicKey });
+  return address;
+}
+
+async function getBalance(address) {
+  try {
+    const res = await axios.get(`https://api.blockcypher.com/v1/btc/main/addrs/${address}/balance`);
+    return res.data.final_balance / 1e8; // Convert satoshis to BTC
+  } catch (err) {
+    console.error('Balance fetch error:', err);
+    return 0;
+  }
+}
+
+module.exports = { generateAddress, getBalance };
+
+
+
+
+
 const express = require('express');
 const cors = require('cors');
 const routes = require('./src/routes');
