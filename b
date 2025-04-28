@@ -1,20 +1,20 @@
-ServicesSelector.jsx:
+ServiceSelector.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
-import SmsPage from './SmsPage';
-import CallPage from './CallPage';
+import NumberModal from './NumberModal';
 
 function ServiceSelector({ country, language, onBack }) {
   const { tg, user } = useTelegram();
   const [service, setService] = useState(null);
+  const [showNumberModal, setShowNumberModal] = useState(false);
   const [numberData, setNumberData] = useState(null);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     if (tg) {
       tg.MainButton.hide();
-      if (service && service !== 'rent') {
+      if (service) {
         tg.MainButton.setText(language === 'ru' ? 'Купить' : 'Buy').show().onClick(handleBuy);
       }
     }
@@ -39,7 +39,8 @@ function ServiceSelector({ country, language, onBack }) {
           },
         }
       );
-      setNumberData(res.data);
+      setNumberData({ ...res.data, service });
+      setShowNumberModal(true);
     } catch (err) {
       console.error('Buy number error:', err);
       tg?.showPopup({ message: `Ошибка покупки: ${err.message}` });
@@ -50,26 +51,6 @@ function ServiceSelector({ country, language, onBack }) {
     ru: { title: `Выберите сервис для ${country.name_ru}` },
     en: { title: `Select Service for ${country.name_en}` },
   };
-
-  if (numberData && service === 'sms') {
-    return (
-      <SmsPage
-        numberData={numberData}
-        language={language}
-        onBack={() => setNumberData(null)}
-      />
-    );
-  }
-
-  if (numberData && service === 'call') {
-    return (
-      <CallPage
-        numberData={numberData}
-        language={language}
-        onBack={() => setNumberData(null)}
-      />
-    );
-  }
 
   return (
     <div className="p-4 max-w-md mx-auto">
@@ -87,6 +68,13 @@ function ServiceSelector({ country, language, onBack }) {
           </button>
         ))}
       </div>
+      {showNumberModal && numberData && (
+        <NumberModal
+          numberData={numberData}
+          language={language}
+          onClose={() => setShowNumberModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -97,90 +85,36 @@ export default ServiceSelector;
 
 
 
-
-SmsPage.jsx:
+NumberModal.jsx:
 import { useTelegram } from '../telegram';
 
-function SmsPage({ numberData, language, onBack }) {
+function NumberModal({ numberData, language, onClose }) {
   const { tg } = useTelegram();
 
   const texts = {
     ru: {
-      title: 'Ваш номер для СМС',
+      title: 'Ваш номер',
       number: 'Номер:',
       code: 'Код:',
+      last4: '4 последние цифры:',
+      price: 'Цена:',
+      smsPrice: '0.012 €',
+      callPrice: '0.020 €',
+      rentPrice: '5$ в месяц',
       copy: 'Копировать',
+      close: 'Закрыть',
     },
     en: {
-      title: 'Your Number for SMS',
+      title: 'Your Number',
       number: 'Number:',
       code: 'Code:',
-      copy: 'Copy',
-    },
-  };
-
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    tg?.showPopup({ message: language === 'ru' ? 'Скопировано!' : 'Copied!' });
-  };
-
-  return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">{texts[language].title}</h1>
-      <div className="space-y-4">
-        <div>
-          <p className="font-semibold">{texts[language].number}</p>
-          <div className="flex items-center">
-            <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.number}</span>
-            <button
-              className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
-              onClick={() => copyToClipboard(numberData.number)}
-            >
-              {texts[language].copy}
-            </button>
-          </div>
-        </div>
-        <div>
-          <p className="font-semibold">{texts[language].code}</p>
-          <div className="flex items-center">
-            <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.code}</span>
-            <button
-              className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
-              onClick={() => copyToClipboard(numberData.code)}
-            >
-              {texts[language].copy}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default SmsPage;
-
-
-
-
-
-CallPage.jsx:
-import { useTelegram } from '../telegram';
-
-function CallPage({ numberData, language, onBack }) {
-  const { tg } = useTelegram();
-
-  const texts = {
-    ru: {
-      title: 'Ваш номер для звонка',
-      number: 'Номер:',
-      last4: '4 последние цифры:',
-      copy: 'Копировать',
-    },
-    en: {
-      title: 'Your Number for Call',
-      number: 'Number:',
       last4: 'Last 4 digits:',
+      price: 'Price:',
+      smsPrice: '0.012 €',
+      callPrice: '0.020 €',
+      rentPrice: '5$ per month',
       copy: 'Copy',
+      close: 'Close',
     },
   };
 
@@ -189,10 +123,23 @@ function CallPage({ numberData, language, onBack }) {
     tg?.showPopup({ message: language === 'ru' ? 'Скопировано!' : 'Copied!' });
   };
 
+  const getPrice = () => {
+    switch (numberData.service) {
+      case 'sms':
+        return texts[language].smsPrice;
+      case 'call':
+        return texts[language].callPrice;
+      case 'rent':
+        return texts[language].rentPrice;
+      default:
+        return '';
+    }
+  };
+
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">{texts[language].title}</h1>
-      <div className="space-y-4">
+    <div className="fixed bottom-0 left-0 right-0 bg-white p-4 rounded-t-lg shadow-lg max-w-md mx-auto">
+      <h2 className="text-xl font-bold mb-2">{texts[language].title}</h2>
+      <div className="space-y-2">
         <div>
           <p className="font-semibold">{texts[language].number}</p>
           <div className="flex items-center">
@@ -205,29 +152,55 @@ function CallPage({ numberData, language, onBack }) {
             </button>
           </div>
         </div>
-        <div>
-          <p className="font-semibold">{texts[language].last4}</p>
-          <div className="flex items-center">
-            <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.last4}</span>
-            <button
-              className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
-              onClick={() => copyToClipboard(numberData.last4)}
-            >
-              {texts[language].copy}
-            </button>
+        {numberData.service === 'sms' && numberData.code && (
+          <div>
+            <p className="font-semibold">{texts[language].code}</p>
+            <div className="flex items-center">
+              <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.code}</span>
+              <button
+                className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+                onClick={() => copyToClipboard(numberData.code)}
+              >
+                {texts[language].copy}
+              </button>
+            </div>
           </div>
+        )}
+        {numberData.service === 'call' && numberData.last4 && (
+          <div>
+            <p className="font-semibold">{texts[language].last4}</p>
+            <div className="flex items-center">
+              <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.last4}</span>
+              <button
+                className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+                onClick={() => copyToClipboard(numberData.last4)}
+              >
+                {texts[language].copy}
+              </button>
+            </div>
+          </div>
+        )}
+        <div>
+          <p className="font-semibold">{texts[language].price}</p>
+          <p className="p-2 bg-blue-100 rounded">{getPrice()}</p>
         </div>
       </div>
+      <button
+        className="w-full bg-red-500 text-white p-2 rounded mt-4"
+        onClick={onClose}
+      >
+        {texts[language].close}
+      </button>
     </div>
   );
 }
 
-export default CallPage;
+export default NumberModal;
 
 
 
 
-route.js:
+routes.js:
 const express = require('express');
 const db = require('./db');
 const { generateAddress, getBalance } = require('./wallet');
@@ -391,6 +364,7 @@ router.post('/buy-number', async (req, res) => {
     const code = service === 'sms' ? `CODE-${Math.random().toString(36).slice(2, 8)}` : null;
     const last4 = service === 'call' ? number.slice(-4) : null;
     const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const price = service === 'sms' ? '0.012 €' : service === 'call' ? '0.020 €' : '5$ в месяц';
     db.run(
       'INSERT INTO purchases (telegram_id, country, resource, code) VALUES (?, ?, ?, ?)',
       [telegram_id, country, service, code || number]
@@ -405,8 +379,14 @@ router.post('/buy-number', async (req, res) => {
       code,
       last4,
       expiry,
+      price,
     });
   });
 });
 
 module.exports = router;
+
+
+
+
+
