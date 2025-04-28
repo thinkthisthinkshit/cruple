@@ -1,4 +1,89 @@
 import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
+import NumberModal from './NumberModal';
+
+function ServiceSelector({ country, language, onBack }) {
+  const { tg, user } = useTelegram();
+  const [service, setService] = useState(null);
+  const [showNumberModal, setShowNumberModal] = useState(false);
+  const [numberData, setNumberData] = useState(null);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    if (tg) {
+      tg.MainButton.hide();
+      if (service) {
+        tg.MainButton.setText(language === 'ru' ? 'Купить' : 'Buy').show().onClick(handleBuy);
+      }
+    }
+    return () => tg?.MainButton.hide();
+  }, [tg, service, language]);
+
+  const services = [
+    { id: 'sms', name_ru: 'СМС', name_en: 'SMS' },
+    { id: 'call', name_ru: 'Звонок', name_en: 'Call' },
+    { id: 'rent', name_ru: 'Аренда номера', name_en: 'Number Rental' },
+  ];
+
+  const handleBuy = async () => {
+    try {
+      const res = await axios.post(
+        `${API_URL}/buy-number`,
+        { telegram_id: user?.id, country: country.id, service },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      setNumberData(res.data);
+      setShowNumberModal(true);
+    } catch (err) {
+      console.error('Buy number error:', err);
+      tg?.showPopup({ message: `Ошибка покупки: ${err.message}` });
+    }
+  };
+
+  const texts = {
+    ru: { title: `Выберите сервис для ${country.name_ru}` },
+    en: { title: `Select Service for ${country.name_en}` },
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4 text-center">
+        {texts[language].title}
+      </h1>
+      <div className="flex flex-col gap-2">
+        {services.map((s) => (
+          <button
+            key={s.id}
+            className={`p-2 rounded ${service === s.id ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            onClick={() => setService(s.id)}
+          >
+            {language === 'ru' ? s.name_ru : s.name_en}
+          </button>
+        ))}
+      </div>
+      {showNumberModal && numberData && (
+        <NumberModal
+          numberData={numberData}
+          language={language}
+          onClose={() => setShowNumberModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+export default ServiceSelector;
+
+
+
+
+import { useState, useEffect } from 'react';
 import { useTelegram } from './telegram';
 import CountryList from './components/CountryList';
 import Profile from './components/Profile';
