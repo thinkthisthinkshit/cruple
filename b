@@ -1,3 +1,110 @@
+routes:
+const express = require('express');
+const db = require('./db');
+const { generateAddress, getBalance } = require('./wallet');
+const crypto = require('crypto');
+
+const router = express.Router();
+
+// Middleware для проверки initData
+const verifyTelegramInitData = (req, res, next) => {
+  const initData = req.headers['telegram-init-data'];
+  if (!initData) return res.status(401).json({ error: 'No initData' });
+
+  const data = new URLSearchParams(initData);
+  const hash = data.get('hash');
+  data.delete('hash');
+  const dataCheckString = Array.from(data.entries())
+    .sort()
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n');
+  
+  const secretKey = crypto
+    .createHmac('sha256', 'WebAppData')
+    .update(process.env.BOT_TOKEN)
+    .digest();
+  const calculatedHash = crypto
+    .createHmac('sha256', secretKey)
+    .update(dataCheckString)
+    .digest('hex');
+
+  if (calculatedHash === hash) {
+    req.telegram_id = data.get('user') ? JSON.parse(data.get('user')).id : null;
+    next();
+  } else {
+    res.status(401).json({ error: 'Invalid initData' });
+  }
+};
+
+router.get('/countries', (req, res) => {
+  res.json([
+    { id: 'us', name: 'США' },
+    { id: 'ru', name: 'Россия' },
+    { id: 'uk', name: 'Великобритания' },
+  ]);
+});
+
+router.get('/resources', (req, res) => {
+  res.json([
+    { id: 'whatsapp', name: 'WhatsApp' },
+    { id: 'telegram', name: 'Telegram' },
+    { id: 'other', name: 'Другой' },
+  ]);
+});
+
+router.post('/generate-address/:telegram_id', verifyTelegramInitData, async (req, res) => {
+  const { telegram_id } = req;
+  db.get('SELECT wallet_index FROM users WHERE telegram_id = ?', [telegram_id], async (err, row) => {
+    if (row) {
+      db.get('SELECT address FROM users WHERE telegram_id = ?', [telegram_id], (err, row) => {
+        res.json({ address: row.address });
+      });
+    } else {
+      const index = Math.floor(Math.random() * 1000000);
+      const address = await generateAddress(index);
+      db.run(
+        'INSERT INTO users (telegram_id, wallet_index, address, balance) VALUES (?, ?, ?, ?)',
+        [telegram_id, index, address, 0],
+        () => res.json({ address })
+      );
+    }
+  });
+});
+
+router.get('/balance/:telegram_id', verifyTelegramInitData, async (req, res) => {
+  const { telegram_id } = req;
+  db.get('SELECT address FROM users WHERE telegram_id = ?', [telegram_id], async (err, row) => {
+    if (!row) {
+      return res.json({ balance: 0, address: '' });
+    }
+    const balance = await getBalance(row.address);
+    db.run('UPDATE users SET balance = ? WHERE telegram_id = ?', [balance, telegram_id]);
+    res.json({ balance, address: row.address });
+  });
+});
+
+router.post('/buy', verifyTelegramInitData, async (req, res) => {
+  const { telegram_id, country, resource } = req.body;
+  db.get('SELECT balance FROM users WHERE telegram_id = ?', [telegram_id], async (err, row) => {
+    if (!row || row.balance < 0.0001) {
+      return res.json({ success: false });
+    }
+    // Mock SMS code (replace with SMS-Activate API)
+    const code = `SMS-${Math.random().toString(36).slice(2, 8)}`;
+    db.run(
+      'INSERT INTO purchases (telegram_id, country, resource, code) VALUES (?, ?, ?, ?)',
+      [telegram_id, country, resource, code]
+    );
+    db.run(
+      'UPDATE users SET balance = balance - 0.0001 WHERE telegram_id = ?',
+      [telegram_id]
+    );
+    res.json({ success: true, code });
+  });
+});
+
+module.exports = router;
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
