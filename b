@@ -39,6 +39,8 @@ function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack 
     setShowDepositModal(true);
   };
 
+  const selectedCryptoData = cryptos.find((c) => c.id === selectedCrypto);
+
   return (
     <div className="p-4 max-w-md mx-auto">
       <div className="flex justify-center items-center mb-4 gap-2">
@@ -47,7 +49,11 @@ function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack 
             className="w-full bg-gray-200 bg-opacity-50 text-gray-800 border border-gray-600 border-opacity-50 px-4 py-2 rounded flex justify-between items-center"
             onClick={toggleCryptoDropdown}
           >
-            <span>{cryptos.find((c) => c.id === selectedCrypto)?.name || 'Select Crypto'}</span>
+            <span>
+              {selectedCryptoData
+                ? `${selectedCryptoData.name} ${selectedCryptoData.balance}`
+                : 'Select Crypto'}
+            </span>
             <svg
               className={`w-4 h-4 transform ${showCryptoDropdown ? 'rotate-180' : ''}`}
               fill="none"
@@ -59,7 +65,7 @@ function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack 
             </svg>
           </button>
           {showCryptoDropdown && (
-            <div className="absolute z-10 w-full bg-white border border-gray-300 rounded shadow-lg mt-1">
+            <div className="absolute z-10 w-full bg-white border border-gray-300 rounded shadow-lg mt-1 max-h-64 overflow-y-auto">
               {cryptos.map((crypto) => (
                 <button
                   key={crypto.id}
