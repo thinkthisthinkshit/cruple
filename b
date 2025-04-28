@@ -1,3 +1,37 @@
+const express = require('express');
+const cors = require('cors');
+const routes = require('./src/routes');
+const axios = require('axios');
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+app.use('/', routes);
+
+// Настройка команды /start для открытия Mini App
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const WEB_APP_URL = 'https://frontend-abc123.ngrok.io'; // Замени на твой фронт-URL
+
+axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
+  commands: [{ command: 'start', description: 'Открыть SimCard Mini App' }],
+}).catch(err => console.error('Ошибка настройки команд:', err));
+
+axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+  menu_button: {
+    type: 'web_app',
+    text: 'Открыть Mini App',
+    web_app: { url: WEB_APP_URL },
+  },
+}).catch(err => console.error('Ошибка настройки кнопки:', err));
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
+
+
+
 App.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from './telegram';
