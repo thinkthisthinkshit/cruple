@@ -1,19 +1,20 @@
+ServicesSelector.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
-import NumberModal from './NumberModal';
+import SmsPage from './SmsPage';
+import CallPage from './CallPage';
 
 function ServiceSelector({ country, language, onBack }) {
   const { tg, user } = useTelegram();
   const [service, setService] = useState(null);
-  const [showNumberModal, setShowNumberModal] = useState(false);
   const [numberData, setNumberData] = useState(null);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     if (tg) {
       tg.MainButton.hide();
-      if (service) {
+      if (service && service !== 'rent') {
         tg.MainButton.setText(language === 'ru' ? 'Купить' : 'Buy').show().onClick(handleBuy);
       }
     }
@@ -39,7 +40,6 @@ function ServiceSelector({ country, language, onBack }) {
         }
       );
       setNumberData(res.data);
-      setShowNumberModal(true);
     } catch (err) {
       console.error('Buy number error:', err);
       tg?.showPopup({ message: `Ошибка покупки: ${err.message}` });
@@ -50,6 +50,26 @@ function ServiceSelector({ country, language, onBack }) {
     ru: { title: `Выберите сервис для ${country.name_ru}` },
     en: { title: `Select Service for ${country.name_en}` },
   };
+
+  if (numberData && service === 'sms') {
+    return (
+      <SmsPage
+        numberData={numberData}
+        language={language}
+        onBack={() => setNumberData(null)}
+      />
+    );
+  }
+
+  if (numberData && service === 'call') {
+    return (
+      <CallPage
+        numberData={numberData}
+        language={language}
+        onBack={() => setNumberData(null)}
+      />
+    );
+  }
 
   return (
     <div className="p-4 max-w-md mx-auto">
@@ -67,13 +87,6 @@ function ServiceSelector({ country, language, onBack }) {
           </button>
         ))}
       </div>
-      {showNumberModal && numberData && (
-        <NumberModal
-          numberData={numberData}
-          language={language}
-          onClose={() => setShowNumberModal(false)}
-        />
-      )}
     </div>
   );
 }
@@ -83,379 +96,138 @@ export default ServiceSelector;
 
 
 
-import { useState, useEffect } from 'react';
-import { useTelegram } from './telegram';
-import CountryList from './components/CountryList';
-import Profile from './components/Profile';
 
-function App() {
-  const { tg, user } = useTelegram();
-  const [language, setLanguage] = useState('ru');
-  const [showCountryList, setShowCountryList] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showLanguageModal, setShowLanguageModal] = useState(false);
-  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
-  const [balance, setBalance] = useState(null);
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+SmsPage.jsx:
+import { useTelegram } from '../telegram';
 
-  useEffect(() => {
-    if (tg) {
-      tg.ready();
-      tg.BackButton.onClick(() => {
-        if (showProfile) setShowProfile(false);
-        else if (showCountryList) setShowCountryList(false);
-      });
-      fetchBalance();
-    }
-  }, [tg, showCountryList, showProfile]);
-
-  const fetchBalance = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user?.id}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setBalance(res.data.balance);
-      setSelectedCrypto(res.data.crypto);
-    } catch (err) {
-      console.error('Fetch balance error:', err);
-    }
-  };
-
-  const handleSelectCrypto = async (crypto) => {
-    try {
-      await axios.post(
-        `${API_URL}/select-crypto/${user?.id}`,
-        { crypto },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      setSelectedCrypto(crypto);
-    } catch (err) {
-      console.error('Select crypto error:', err);
-    }
-  };
+function SmsPage({ numberData, language, onBack }) {
+  const { tg } = useTelegram();
 
   const texts = {
     ru: {
-      title: 'Виртуальные сим-карты',
-      subtitle: 'Более 70 стран от 0.01 €',
-      buy: 'Купить',
-      purchases: 'Мои покупки',
+      title: 'Ваш номер для СМС',
+      number: 'Номер:',
+      code: 'Код:',
+      copy: 'Копировать',
     },
     en: {
-      title: 'Virtual SIM Cards',
-      subtitle: 'Over 70 countries from 0.01 €',
-      buy: 'Buy',
-      purchases: 'My Purchases',
+      title: 'Your Number for SMS',
+      number: 'Number:',
+      code: 'Code:',
+      copy: 'Copy',
     },
   };
 
-  if (showProfile) {
-    return (
-      <Profile
-        username={user?.first_name || 'User'}
-        selectedCrypto={selectedCrypto}
-        setSelectedCrypto={handleSelectCrypto}
-        balance={balance}
-        onBack={() => setShowProfile(false)}
-      />
-    );
-  }
-
-  if (showCountryList) {
-    return <CountryList language={language} onBack={() => setShowCountryList(false)} />;
-  }
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    tg?.showPopup({ message: language === 'ru' ? 'Скопировано!' : 'Copied!' });
+  };
 
   return (
     <div className="p-4 max-w-md mx-auto">
-      <div className="flex justify-between mb-4">
-        <button
-          className="bg-gray-200 px-3 py-1 rounded"
-          onClick={() => setShowLanguageModal(true)}
-        >
-          {language.toUpperCase()}
-        </button>
-        <button
-          className="text-lg font-semibold text-blue-500"
-          onClick={() => setShowProfile(true)}
-        >
-          {user?.first_name || 'User'}
-        </button>
-      </div>
-      <h1 className="text-2xl font-bold text-center mb-2">
-        {texts[language].title}
-      </h1>
-      <p className="text-center text-gray-600 mb-6">
-        {texts[language].subtitle}
-      </p>
-      <div className="flex flex-col gap-4">
-        <button
-          className="bg-blue-500 text-white px-4 py-2 rounded"
-          onClick={() => setShowCountryList(true)}
-        >
-          {texts[language].buy}
-        </button>
-        <button
-          className="bg-gray-500 text-white px-4 py-2 rounded"
-          onClick={() => tg?.showPopup({ message: 'Покупки пока не реализованы' })}
-        >
-          {texts[language].purchases}
-        </button>
-      </div>
-      {showLanguageModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white p-4 rounded-lg max-w-sm w-full">
-            <h2 className="text-xl font-bold mb-4">
-              {language === 'ru' ? 'Выберите язык' : 'Select Language'}
-            </h2>
+      <h1 className="text-2xl font-bold mb-4 text-center">{texts[language].title}</h1>
+      <div className="space-y-4">
+        <div>
+          <p className="font-semibold">{texts[language].number}</p>
+          <div className="flex items-center">
+            <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.number}</span>
             <button
-              className="w-full mb-2 bg-gray-200 p-2 rounded"
-              onClick={() => {
-                setLanguage('ru');
-                setShowLanguageModal(false);
-              }}
+              className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+              onClick={() => copyToClipboard(numberData.number)}
             >
-              Русский
-            </button>
-            <button
-              className="w-full mb-2 bg-gray-200 p-2 rounded"
-              onClick={() => {
-                setLanguage('en');
-                setShowLanguageModal(false);
-              }}
-            >
-              English
-            </button>
-            <button
-              className="w-full bg-red-500 text-white p-2 rounded"
-              onClick={() => setShowLanguageModal(false)}
-            >
-              {language === 'ru' ? 'Закрыть' : 'Close'}
+              {texts[language].copy}
             </button>
           </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-export default App;
-
-
-
-
-
-CountryList.jsx:
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import ServiceSelector from './ServiceSelector';
-
-function CountryList({ language, onBack }) {
-  const [countries, setCountries] = useState([]);
-  const [selectedCountry, setSelectedCountry] = useState(null);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  useEffect(() => {
-    const fetchCountries = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/countries`, {
-          headers: { 'ngrok-skip-browser-warning': 'true' },
-        });
-        setCountries(res.data);
-      } catch (err) {
-        console.error('Fetch countries error:', err);
-      }
-    };
-    fetchCountries();
-  }, []);
-
-  const texts = {
-    ru: { title: 'Выберите страну', back: 'Назад' },
-    en: { title: 'Select Country', back: 'Back' },
-  };
-
-  if (selectedCountry) {
-    return (
-      <ServiceSelector
-        country={selectedCountry}
-        language={language}
-        onBack={() => setSelectedCountry(null)}
-      />
-    );
-  }
-
-  return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">
-        {texts[language].title}
-      </h1>
-      <div className="space-y-2">
-        {countries.map((country) => (
-          <button
-            key={country.id}
-            className="flex justify-between items-center p-2 bg-gray-100 rounded w-full"
-            onClick={() => setSelectedCountry(country)}
-          >
-            <span>{language === 'ru' ? country.name_ru : country.name_en}</span>
-            <span className="text-green-600">0.012 €</span>
-          </button>
-        ))}
+        <div>
+          <p className="font-semibold">{texts[language].code}</p>
+          <div className="flex items-center">
+            <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.code}</span>
+            <button
+              className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+              onClick={() => copyToClipboard(numberData.code)}
+            >
+              {texts[language].copy}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-export default CountryList;
+export default SmsPage;
 
 
 
 
 
+CallPage.jsx:
+import { useTelegram } from '../telegram';
 
-ServiceSelector.jsx:
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import NumberModal from './NumberModal';
-
-function ServiceSelector({ country, language, onBack }) {
+function CallPage({ numberData, language, onBack }) {
   const { tg } = useTelegram();
-  const [service, setService] = useState(null);
-  const [showNumberModal, setShowNumberModal] = useState(false);
-  const [numberData, setNumberData] = useState(null);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-  useEffect(() => {
-    if (tg) {
-      tg.MainButton.hide();
-      if (service) {
-        tg.MainButton.setText(language === 'ru' ? 'Купить' : 'Buy').show().onClick(handleBuy);
-      }
-    }
-    return () => tg?.MainButton.hide();
-  }, [tg, service, language]);
-
-  const services = [
-    { id: 'sms', name_ru: 'СМС', name_en: 'SMS' },
-    { id: 'call', name_ru: 'Звонок', name_en: 'Call' },
-    { id: 'rent', name_ru: 'Аренда номера', name_en: 'Number Rental' },
-  ];
-
-  const handleBuy = async () => {
-    try {
-      const res = await axios.post(
-        `${API_URL}/buy-number`,
-        { telegram_id: user?.id, country: country.id, service },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      setNumberData(res.data);
-      setShowNumberModal(true);
-    } catch (err) {
-      console.error('Buy number error:', err);
-      tg?.showPopup({ message: `Ошибка покупки: ${err.message}` });
-    }
-  };
-
-  const texts = {
-    ru: { title: `Выберите сервис для ${country.name_ru}` },
-    en: { title: `Select Service for ${country.name_en}` },
-  };
-
-  return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">
-        {texts[language].title}
-      </h1>
-      <div className="flex flex-col gap-2">
-        {services.map((s) => (
-          <button
-            key={s.id}
-            className={`p-2 rounded ${service === s.id ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-            onClick={() => setService(s.id)}
-          >
-            {language === 'ru' ? s.name_ru : s.name_en}
-          </button>
-        ))}
-      </div>
-      {showNumberModal && numberData && (
-        <NumberModal
-          numberData={numberData}
-          language={language}
-          onClose={() => setShowNumberModal(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-export default ServiceSelector;
-
-
-
-
-
-NumberModal.jsx:
-function NumberModal({ numberData, language, onClose }) {
   const texts = {
     ru: {
-      title: 'Ваш номер',
-      number: 'Номер',
-      code: 'Код (для СМС)',
-      expiry: 'Срок действия',
-      close: 'Закрыть',
+      title: 'Ваш номер для звонка',
+      number: 'Номер:',
+      last4: '4 последние цифры:',
+      copy: 'Копировать',
     },
     en: {
-      title: 'Your Number',
-      number: 'Number',
-      code: 'Code (for SMS)',
-      expiry: 'Expiry',
-      close: 'Close',
+      title: 'Your Number for Call',
+      number: 'Number:',
+      last4: 'Last 4 digits:',
+      copy: 'Copy',
     },
   };
 
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    tg?.showPopup({ message: language === 'ru' ? 'Скопировано!' : 'Copied!' });
+  };
+
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white p-4 rounded-t-lg shadow-lg max-w-md mx-auto">
-      <h2 className="text-xl font-bold mb-2">{texts[language].title}</h2>
-      <p className="mb-2">
-        <strong>{texts[language].number}:</strong> {numberData.number}
-      </p>
-      {numberData.code && (
-        <p className="mb-2">
-          <strong>{texts[language].code}:</strong> {numberData.code}
-        </p>
-      )}
-      <p className="mb-4">
-        <strong>{texts[language].expiry}:</strong> {numberData.expiry}
-      </p>
-      <button
-        className="w-full bg-red-500 text-white p-2 rounded"
-        onClick={onClose}
-      >
-        {texts[language].close}
-      </button>
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4 text-center">{texts[language].title}</h1>
+      <div className="space-y-4">
+        <div>
+          <p className="font-semibold">{texts[language].number}</p>
+          <div className="flex items-center">
+            <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.number}</span>
+            <button
+              className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+              onClick={() => copyToClipboard(numberData.number)}
+            >
+              {texts[language].copy}
+            </button>
+          </div>
+        </div>
+        <div>
+          <p className="font-semibold">{texts[language].last4}</p>
+          <div className="flex items-center">
+            <span className="flex-1 p-2 bg-blue-100 rounded">{numberData.last4}</span>
+            <button
+              className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+              onClick={() => copyToClipboard(numberData.last4)}
+            >
+              {texts[language].copy}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-export default NumberModal;
+export default CallPage;
 
 
 
 
-
-routes.jsx:
+route.js:
 const express = require('express');
 const db = require('./db');
 const { generateAddress, getBalance } = require('./wallet');
@@ -617,6 +389,7 @@ router.post('/buy-number', async (req, res) => {
     }
     const number = `+${Math.floor(10000000000 + Math.random() * 90000000000)}`;
     const code = service === 'sms' ? `CODE-${Math.random().toString(36).slice(2, 8)}` : null;
+    const last4 = service === 'call' ? number.slice(-4) : null;
     const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     db.run(
       'INSERT INTO purchases (telegram_id, country, resource, code) VALUES (?, ?, ?, ?)',
@@ -630,15 +403,10 @@ router.post('/buy-number', async (req, res) => {
       success: true,
       number,
       code,
+      last4,
       expiry,
     });
   });
 });
 
 module.exports = router;
-
-
-
-
-
-
