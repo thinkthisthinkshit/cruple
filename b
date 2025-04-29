@@ -1,4 +1,3 @@
-telegram.js:
 import { useEffect } from 'react';
 
 export const useTelegram = () => {
@@ -20,8 +19,190 @@ export const useTelegram = () => {
 
 
 
+App.jsx:
+import { useState, useEffect } from 'react';
+import { useTelegram } from './telegram';
+import CountryList from './components/CountryList';
+import Profile from './components/Profile';
+import axios from 'axios';
 
-Profile.js:
+function App() {
+  const { tg, user } = useTelegram();
+  const [language, setLanguage] = useState('ru');
+  const [showCountryList, setShowCountryList] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
+  const [balance, setBalance] = useState(null);
+
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    console.log('App user:', user); // Отладка
+    if (tg) {
+      tg.ready();
+      tg.BackButton.onClick(() => {
+        if (showProfile) setShowProfile(false);
+        else if (showCountryList) setShowCountryList(false);
+      });
+      if (showCountryList || showProfile) {
+        tg.BackButton.show();
+      } else {
+        tg.BackButton.hide();
+      }
+      if (user?.id) {
+        fetchBalance();
+      } else {
+        console.error('User ID is undefined in App');
+      }
+    }
+  }, [tg, user, showCountryList, showProfile]);
+
+  const fetchBalance = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/balance/${user.id}`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      setBalance(res.data.balance);
+      setSelectedCrypto(res.data.crypto);
+    } catch (err) {
+      console.error('Fetch balance error:', err);
+    }
+  };
+
+  const handleSelectCrypto = async (crypto) => {
+    try {
+      await axios.post(
+        `${API_URL}/select-crypto/${user?.id}`,
+        { crypto },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      setSelectedCrypto(crypto);
+    } catch (err) {
+      console.error('Select crypto error:', err);
+    }
+  };
+
+  const texts = {
+    ru: {
+      title: 'Виртуальные сим-карты',
+      subtitle: 'Более 70 стран от 0.01 €',
+      buy: 'Купить',
+      purchases: 'Мои покупки',
+    },
+    en: {
+      title: 'Virtual SIM Cards',
+      subtitle: 'Over 70 countries from 0.01 €',
+      buy: 'Buy',
+      purchases: 'My Purchases',
+    },
+  };
+
+  if (showProfile) {
+    return (
+      <Profile
+        username={user?.first_name || 'User'}
+        selectedCrypto={selectedCrypto}
+        setSelectedCrypto={handleSelectCrypto}
+        balance={balance}
+        onBack={() => setShowProfile(false)}
+      />
+    );
+  }
+
+  if (showCountryList) {
+    return <CountryList language={language} onBack={() => setShowCountryList(false)} />;
+  }
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      <div className="flex justify-between mb-4">
+        <button
+          className="bg-gray-200 px-3 py-1 rounded"
+          onClick={() => setShowLanguageModal(true)}
+        >
+          {language.toUpperCase()}
+        </button>
+        <button
+          className="text-lg font-semibold text-blue-500"
+          onClick={() => setShowProfile(true)}
+        >
+          {user?.first_name || 'User'}
+        </button>
+      </div>
+      <h1 className="text-2xl font-bold text-center mb-2">
+        {texts[language].title}
+      </h1>
+      <p className="text-center text-gray-600 mb-6">
+        {texts[language].subtitle}
+      </p>
+      <div className="flex flex-col gap-4">
+        <button
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+          onClick={() => setShowCountryList(true)}
+        >
+          {texts[language].buy}
+        </button>
+        <button
+          className="bg-gray-500 text-white px-4 py-2 rounded"
+          onClick={() => tg?.showPopup({ message: 'Покупки пока не реализованы' })}
+        >
+          {texts[language].purchases}
+        </button>
+      </div>
+      {showLanguageModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+          onClick={() => setShowLanguageModal(false)}
+        >
+          <div
+            className="bg-white p-4 rounded-lg max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">
+              {language === 'ru' ? 'Выберите язык' : 'Select Language'}
+            </h2>
+            <button
+              className="w-full mb-2 bg-gray-200 p-2 rounded"
+              onClick={() => {
+                setLanguage('ru');
+                setShowLanguageModal(false);
+              }}
+            >
+              Русский
+            </button>
+            <button
+              className="w-full mb-2 bg-gray-200 p-2 rounded"
+              onClick={() => {
+                setLanguage('en');
+                setShowLanguageModal(false);
+              }}
+            >
+              English
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
+
+
+
+
+
+
+Profile.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
@@ -111,7 +292,7 @@ function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack 
               className={`w-4 h-4 transform ${showCryptoDropdown ? 'rotate-180' : ''}`}
               fill="none"
               stroke="currentColor"
-              viewBox="0 0 24 24"
+              viewBox="0 24 24"
               xmlns="http://www.w3.org/2000/svg"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -177,79 +358,14 @@ export default Profile;
 
 
 
+index.jsx:
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
 
-App.jsx:
-import { useState, useEffect } from 'react';
-import { useTelegram } from './telegram';
-import axios from 'axios';
-import Profile from './components/Profile';
-
-function App() {
-  const { tg, user } = useTelegram();
-  const [username, setUsername] = useState('');
-  const [balance, setBalance] = useState(0);
-  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
-  const [currentPage, setCurrentPage] = useState('home');
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  useEffect(() => {
-    console.log('App user:', user); // Отладка
-    if (user?.id) {
-      setUsername(user.first_name || user.username || 'User');
-      fetchBalance(user.id);
-    } else {
-      console.error('User ID is undefined');
-    }
-  }, [user]);
-
-  const fetchBalance = async (telegram_id) => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${telegram_id}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setBalance(res.data.balance);
-    } catch (err) {
-      console.error('Fetch balance error:', err);
-    }
-  };
-
-  const handleBack = () => {
-    setCurrentPage('home');
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-100">
-      {currentPage === 'home' && (
-        <div className="p-4">
-          <h1 className="text-2xl font-bold">Welcome, {username}</h1>
-          <p>Balance: {balance}</p>
-          <button
-            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded"
-            onClick={() => setCurrentPage('profile')}
-          >
-            Go to Profile
-          </button>
-        </div>
-      )}
-      {currentPage === 'profile' && (
-        <Profile
-          username={username}
-          selectedCrypto={selectedCrypto}
-          setSelectedCrypto={setSelectedCrypto}
-          balance={balance}
-          onBack={handleBack}
-        />
-      )}
-    </div>
-  );
-}
-
-export default App;
-
-
+const container = document.getElementById('root');
+const root = createRoot(container);
+root.render(<App />);
 
 
 
@@ -280,44 +396,38 @@ if (!BOT_TOKEN || !WEB_APP_URL) {
   process.exit(1);
 }
 
-axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
-  commands: [{ command: '/start', description: 'Открыть SimCard Mini App' }],
-}).then(() => {
-  console.log('Telegram commands set successfully');
-}).catch(err => {
-  console.error('Ошибка настройки команд:', err.message);
-});
+// Функция для повторных попыток
+const retryRequest = async (fn, retries = 3, delay = 1000) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      console.warn(`Retry ${i + 1}/${retries} after error: ${err.message}`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+};
 
-axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
-  menu_button: {
-    type: 'web_app',
-    text: 'OPEN',
-    web_app: { url: WEB_APP_URL },
-  },
-}).then(() => {
-  console.log('Telegram menu button set successfully');
-}).catch(err => {
-  console.error('Ошибка настройки кнопки:', err.message);
-});
+retryRequest(() =>
+  axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
+    commands: [{ command: '/start', description: 'Открыть SimCard Mini App' }],
+  })
+)
+  .then(() => console.log('Telegram commands set successfully'))
+  .catch(err => console.error('Ошибка настройки команд:', err.message));
+
+retryRequest(() =>
+  axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+    menu_button: {
+      type: 'web_app',
+      text: 'OPEN',
+      web_app: { url: WEB_APP_URL },
+    },
+  })
+)
+  .then(() => console.log('Telegram menu button set successfully'))
+  .catch(err => console.error('Ошибка настройки кнопки:', err.message));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-
-
-
-
-
-
-index.js:
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import App from './App';
-
-const container = document.getElementById('root');
-const root = createRoot(container);
-root.render(<App />);
-
-
-
-
