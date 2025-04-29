@@ -1,155 +1,40 @@
-const express = require('express');
-const cors = require('cors');
-const routes = require('./src/routes');
-const axios = require('axios');
-require('dotenv').config();
+telegram.js:
+import { useEffect } from 'react';
 
-const app = express();
+export const useTelegram = () => {
+  const tg = window.Telegram?.WebApp;
 
-app.use(cors({ origin: '*' }));
-app.use(express.json());
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.headers['user-agent']}`);
-  next();
-});
-app.use('/', routes);
-
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const WEB_APP_URL = process.env.WEB_APP_URL;
-
-if (!BOT_TOKEN || !WEB_APP_URL) {
-  console.error('BOT_TOKEN or WEB_APP_URL not set in .env');
-  process.exit(1);
-}
-
-axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
-  commands: [{ command: '/start', description: 'Открыть SimCard Mini App' }],
-}).then(() => {
-  console.log('Telegram commands set successfully');
-}).catch(err => {
-  console.error('Ошибка настройки команд:', err.message);
-});
-
-axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
-  menu_button: {
-    type: 'web_app',
-    text: 'OPEN',
-    web_app: { url: WEB_APP_URL },
-  },
-}).then(() => {
-  console.log('Telegram menu button set successfully');
-}).catch(err => {
-  console.error('Ошибка настройки кнопки:', err.message);
-});
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-
-
-
-
-WALLET.js:
-const bip39 = require('bip39');
-const bitcoin = require('bitcoinjs-lib');
-const bip32 = require('bip32');
-const { ethers } = require('ethers');
-const TonWeb = require('tonweb');
-require('dotenv').config();
-
-const SEED_PHRASE = process.env.SEED_PHRASE;
-
-if (!SEED_PHRASE) {
-  throw new Error('SEED_PHRASE not set in .env');
-}
-
-if (!bip39.validateMnemonic(SEED_PHRASE)) {
-  throw new Error('Invalid SEED_PHRASE');
-}
-
-const getDerivationPath = (coinType, userIndex) => {
-  return `m/44'/${coinType}'/0'/0/${userIndex}`;
-};
-
-const cryptoCoinTypes = {
-  BTC: 0,
-  ETH: 60,
-  USDT: 60, // USDT на Ethereum
-  BNB: 60, // BNB на BSC
-  ADA: 1815, // Cardano
-  SOL: 501, // Solana
-  XRP: 144,
-  DOT: 354,
-  LTC: 2,
-  XMR: 128, // Monero (упрощённо)
-  TRX: 195,
-  AVAX: 60, // Avalanche C-Chain
-  ATOM: 118,
-  XTZ: 1729,
-  ALGO: 283,
-  NOT: 607, // Notcoin на TON
-  HMSTR: 607, // Hamster Kombat на TON
-};
-
-const generateAddress = async (telegram_id, crypto) => {
-  try {
-    const userIndex = parseInt(telegram_id, 10) % 1000000; // Уникальный индекс из telegram_id
-    const seed = await bip39.mnemonicToSeed(SEED_PHRASE);
-
-    if (['BTC', 'LTC'].includes(crypto)) {
-      const network = crypto === 'BTC' ? bitcoin.networks.bitcoin : bitcoin.networks.litecoin;
-      const root = bip32.fromSeed(seed, network);
-      const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
-      const child = root.derivePath(path);
-      const { address } = bitcoin.payments.p2pkh({ pubkey: child.publicKey, network });
-      return address;
-    } else if (['ETH', 'USDT', 'BNB', 'AVAX'].includes(crypto)) {
-      const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
-      const wallet = ethers.Wallet.fromMnemonic(SEED_PHRASE, path);
-      return wallet.address;
-    } else if (['NOT', 'HMSTR'].includes(crypto)) {
-      const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
-      const wallet = ethers.Wallet.fromMnemonic(SEED_PHRASE, path);
-      const keyPair = TonWeb.utils.nacl.sign.keyPair.fromSeed(wallet.signingKey.privateKey.slice(0, 32));
-      const tonWallet = new TonWeb.Wallets.WalletV4({ publicKey: keyPair.publicKey });
-      const { address } = await tonWallet.getAddress();
-      return address.toString(true, true, true); // Формат TON-адреса (user-friendly)
-    } else {
-      // Заглушка для других криптовалют
-      return `PlaceholderAddress_${crypto}_${telegram_id}`;
+  useEffect(() => {
+    if (tg) {
+      tg.ready();
+      console.log('Telegram WebApp initialized:', tg.initDataUnsafe);
     }
-  } catch (error) {
-    console.error(`Error generating address for ${crypto}:`, error);
-    throw new Error(`Failed to generate address for ${crypto}`);
-  }
+  }, []);
+
+  return {
+    tg,
+    user: tg?.initDataUnsafe?.user, // Возвращаем user из initDataUnsafe
+  };
 };
 
-const getBalance = async (address) => {
-  // Заглушка: реальный баланс требует API нод
-  return 0;
-};
-
-module.exports = { generateAddress, getBalance };
 
 
 
 
-
-
-
-PROFILE.js:
+Profile.js:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
 
 function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack }) {
-  const { tg } = useTelegram();
+  const { tg, user } = useTelegram();
   const [showCryptoDropdown, setShowCryptoDropdown] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAddress, setDepositAddress] = useState('');
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
+    console.log('Profile user:', user); // Отладка
     if (tg) {
       tg.BackButton.show().onClick(onBack);
     }
@@ -181,15 +66,15 @@ function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack 
   };
 
   const handleDeposit = async () => {
-    if (!tg.user?.id) {
+    if (!user?.id) {
       console.error('Telegram user ID is undefined');
       tg?.showPopup({ message: 'Ошибка: Telegram ID не определён' });
       return;
     }
-    console.log('Sending request for telegram_id:', tg.user.id, 'crypto:', selectedCrypto); // Отладка
+    console.log('Sending request for telegram_id:', user.id, 'crypto:', selectedCrypto);
     try {
       const res = await axios.post(
-        `${API_URL}/generate-address/${tg.user.id}`,
+        `${API_URL}/generate-address/${user.id}`,
         { crypto: selectedCrypto },
         {
           headers: {
@@ -293,22 +178,145 @@ export default Profile;
 
 
 
-TELEGRAM:
-import { useEffect } from 'react';
+App.jsx:
+import { useState, useEffect } from 'react';
+import { useTelegram } from './telegram';
+import axios from 'axios';
+import Profile from './components/Profile';
 
-export const useTelegram = () => {
-  const tg = window.Telegram?.WebApp;
-  
+function App() {
+  const { tg, user } = useTelegram();
+  const [username, setUsername] = useState('');
+  const [balance, setBalance] = useState(0);
+  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
+  const [currentPage, setCurrentPage] = useState('home');
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
   useEffect(() => {
-    if (tg) {
-      tg.ready();
-      console.log('Telegram WebApp initialized:', tg.initDataUnsafe);
+    console.log('App user:', user); // Отладка
+    if (user?.id) {
+      setUsername(user.first_name || user.username || 'User');
+      fetchBalance(user.id);
+    } else {
+      console.error('User ID is undefined');
     }
-  }, []);
+  }, [user]);
 
-  return { tg };
-};
+  const fetchBalance = async (telegram_id) => {
+    try {
+      const res = await axios.get(`${API_URL}/balance/${telegram_id}`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      setBalance(res.data.balance);
+    } catch (err) {
+      console.error('Fetch balance error:', err);
+    }
+  };
 
+  const handleBack = () => {
+    setCurrentPage('home');
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      {currentPage === 'home' && (
+        <div className="p-4">
+          <h1 className="text-2xl font-bold">Welcome, {username}</h1>
+          <p>Balance: {balance}</p>
+          <button
+            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded"
+            onClick={() => setCurrentPage('profile')}
+          >
+            Go to Profile
+          </button>
+        </div>
+      )}
+      {currentPage === 'profile' && (
+        <Profile
+          username={username}
+          selectedCrypto={selectedCrypto}
+          setSelectedCrypto={setSelectedCrypto}
+          balance={balance}
+          onBack={handleBack}
+        />
+      )}
+    </div>
+  );
+}
+
+export default App;
+
+
+
+
+
+
+
+server.js:
+const express = require('express');
+const cors = require('cors');
+const routes = require('./src/routes');
+const axios = require('axios');
+require('dotenv').config();
+
+const app = express();
+
+app.use(cors({ origin: '*' }));
+app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.headers['user-agent']}`);
+  next();
+});
+app.use('/', routes);
+
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const WEB_APP_URL = process.env.WEB_APP_URL;
+
+if (!BOT_TOKEN || !WEB_APP_URL) {
+  console.error('BOT_TOKEN or WEB_APP_URL not set in .env');
+  process.exit(1);
+}
+
+axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
+  commands: [{ command: '/start', description: 'Открыть SimCard Mini App' }],
+}).then(() => {
+  console.log('Telegram commands set successfully');
+}).catch(err => {
+  console.error('Ошибка настройки команд:', err.message);
+});
+
+axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+  menu_button: {
+    type: 'web_app',
+    text: 'OPEN',
+    web_app: { url: WEB_APP_URL },
+  },
+}).then(() => {
+  console.log('Telegram menu button set successfully');
+}).catch(err => {
+  console.error('Ошибка настройки кнопки:', err.message);
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
+
+
+
+
+
+index.js:
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+
+const container = document.getElementById('root');
+const root = createRoot(container);
+root.render(<App />);
 
 
 
