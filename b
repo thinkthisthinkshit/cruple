@@ -2,7 +2,7 @@ const bip39 = require('bip39');
 const bitcoin = require('bitcoinjs-lib');
 const { BIP32Factory } = require('bip32');
 const ecc = require('tiny-secp256k1');
-const { ethers } = require('ethers');
+const { Wallet } = require('ethers'); // Изменён импорт для ethers v5
 const TonWeb = require('tonweb');
 require('dotenv').config();
 
@@ -61,12 +61,14 @@ const generateAddress = async (telegram_id, crypto) => {
       return address;
     } else if (['ETH', 'USDT', 'BNB', 'AVAX'].includes(crypto)) {
       const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
-      const wallet = ethers.Wallet.fromMnemonic(SEED_PHRASE, path);
+      console.log(`Wallet:`, Wallet); // Отладка
+      const wallet = Wallet.fromMnemonic(SEED_PHRASE, path);
       console.log(`Generated ETH-based address: ${wallet.address}`);
       return wallet.address;
     } else if (['NOT', 'HMSTR'].includes(crypto)) {
       const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
-      const wallet = ethers.Wallet.fromMnemonic(SEED_PHRASE, path);
+      console.log(`Wallet:`, Wallet); // Отладка
+      const wallet = Wallet.fromMnemonic(SEED_PHRASE, path);
       const keyPair = TonWeb.utils.nacl.sign.keyPair.fromSeed(wallet.signingKey.privateKey.slice(0, 32));
       const tonWallet = new TonWeb.Wallets.WalletV4({ publicKey: keyPair.publicKey });
       const { address } = await tonWallet.getAddress();
@@ -74,7 +76,7 @@ const generateAddress = async (telegram_id, crypto) => {
       console.log(`Generated TON address: ${tonAddress}`);
       return tonAddress;
     } else {
-      console.log(`Placeholder address for ${crypto}`);
+      console.log(`Placeholder address for ${crypto} (not implemented yet)`);
       return `PlaceholderAddress_${crypto}_${telegram_id}`;
     }
   } catch (error) {
@@ -89,8 +91,3 @@ const getBalance = async (address) => {
 };
 
 module.exports = { generateAddress, getBalance };
-
-
-
-
-
