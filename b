@@ -1,43 +1,70 @@
 const express = require('express');
 const cors = require('cors');
-const router = require('./src/routes');
+const routes = require('./src/routes');
+const axios = require('axios');
+require('dotenv').config();
 
 const app = express();
 
-app.use(cors({
-  origin: '*', // Разрешить все домены (для тестов). В продакшене укажи конкретный Ngrok-домен фронта
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'telegram-init-data', 'ngrok-skip-browser-warning']
-}));
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.headers['user-agent']}`);
   next();
 });
-app.use('/', router);
+app.use('/', routes);
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const WEB_APP_URL = process.env.WEB_APP_URL;
+
+if (!BOT_TOKEN || !WEB_APP_URL) {
+  console.error('BOT_TOKEN or WEB_APP_URL not set in .env');
+  process.exit(1);
+}
+
+axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands`, {
+  commands: [{ command: '/start', description: 'Открыть SimCard Mini App' }],
+}).then(() => {
+  console.log('Telegram commands set successfully');
+}).catch(err => {
+  console.error('Ошибка настройки команд:', err.message);
 });
 
+axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton`, {
+  menu_button: {
+    type: 'web_app',
+    text: 'OPEN',
+    web_app: { url: WEB_APP_URL },
+  },
+}).then(() => {
+  console.log('Telegram menu button set successfully');
+}).catch(err => {
+  console.error('Ошибка настройки кнопки:', err.message);
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 
 
 
-wallet.js:
+
+WALLET.js:
 const bip39 = require('bip39');
 const bitcoin = require('bitcoinjs-lib');
-const bip32 = require('bip32'); // Новый импорт
+const bip32 = require('bip32');
 const { ethers } = require('ethers');
 const TonWeb = require('tonweb');
 require('dotenv').config();
 
 const SEED_PHRASE = process.env.SEED_PHRASE;
-console.log('SEED_PHRASE:', SEED_PHRASE); // Отладка
 
 if (!SEED_PHRASE) {
   throw new Error('SEED_PHRASE not set in .env');
+}
+
+if (!bip39.validateMnemonic(SEED_PHRASE)) {
+  throw new Error('Invalid SEED_PHRASE');
 }
 
 const getDerivationPath = (coinType, userIndex) => {
@@ -71,7 +98,7 @@ const generateAddress = async (telegram_id, crypto) => {
 
     if (['BTC', 'LTC'].includes(crypto)) {
       const network = crypto === 'BTC' ? bitcoin.networks.bitcoin : bitcoin.networks.litecoin;
-      const root = bip32.fromSeed(seed, network); // Используем bip32 вместо bitcoin.BIP32
+      const root = bip32.fromSeed(seed, network);
       const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
       const child = root.derivePath(path);
       const { address } = bitcoin.payments.p2pkh({ pubkey: child.publicKey, network });
@@ -110,7 +137,7 @@ module.exports = { generateAddress, getBalance };
 
 
 
-Profile.jsx:
+PROFILE.js:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
@@ -260,6 +287,27 @@ function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack 
 
 export default Profile;
 
+
+
+
+
+
+
+TELEGRAM:
+import { useEffect } from 'react';
+
+export const useTelegram = () => {
+  const tg = window.Telegram?.WebApp;
+  
+  useEffect(() => {
+    if (tg) {
+      tg.ready();
+      console.log('Telegram WebApp initialized:', tg.initDataUnsafe);
+    }
+  }, []);
+
+  return { tg };
+};
 
 
 
