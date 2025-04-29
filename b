@@ -2,8 +2,10 @@ const bip39 = require('bip39');
 const bitcoin = require('bitcoinjs-lib');
 const { BIP32Factory } = require('bip32');
 const ecc = require('tiny-secp256k1');
-const { Wallet } = require('ethers'); // Изменён импорт для ethers v5
+const { Wallet } = require('ethers');
 const TonWeb = require('tonweb');
+const CardanoWasm = require('@emurgo/cardano-serialization-lib-nodejs');
+const { Keypair } = require('@solana/web3.js');
 require('dotenv').config();
 
 const SEED_PHRASE = process.env.SEED_PHRASE;
@@ -61,13 +63,13 @@ const generateAddress = async (telegram_id, crypto) => {
       return address;
     } else if (['ETH', 'USDT', 'BNB', 'AVAX'].includes(crypto)) {
       const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
-      console.log(`Wallet:`, Wallet); // Отладка
+      console.log(`Wallet:`, Wallet);
       const wallet = Wallet.fromMnemonic(SEED_PHRASE, path);
       console.log(`Generated ETH-based address: ${wallet.address}`);
       return wallet.address;
     } else if (['NOT', 'HMSTR'].includes(crypto)) {
       const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
-      console.log(`Wallet:`, Wallet); // Отладка
+      console.log(`Wallet:`, Wallet);
       const wallet = Wallet.fromMnemonic(SEED_PHRASE, path);
       const keyPair = TonWeb.utils.nacl.sign.keyPair.fromSeed(wallet.signingKey.privateKey.slice(0, 32));
       const tonWallet = new TonWeb.Wallets.WalletV4({ publicKey: keyPair.publicKey });
@@ -75,6 +77,23 @@ const generateAddress = async (telegram_id, crypto) => {
       const tonAddress = address.toString(true, true, true);
       console.log(`Generated TON address: ${tonAddress}`);
       return tonAddress;
+    } else if (crypto === 'ADA') {
+      const rootKey = CardanoWasm.Bip32PrivateKey.from_bip39_entropy(seed, Buffer.from(''));
+      const accountKey = rootKey.derive(1852).derive(1815).derive(0);
+      const paymentKey = accountKey.derive(0).derive(0).to_public();
+      const stakeKey = accountKey.derive(2).derive(0).to_public();
+      const address = CardanoWasm.BaseAddress.new(
+        CardanoWasm.NetworkInfo.mainnet().network_id(),
+        CardanoWasm.StakeCredential.from_keyhash(paymentKey.to_raw_key().hash()),
+        CardanoWasm.StakeCredential.from_keyhash(stakeKey.to_raw_key().hash())
+      ).to_address().to_bech32();
+      console.log(`Generated ADA address: ${address}`);
+      return address;
+    } else if (crypto === 'SOL') {
+      const keypair = Keypair.fromSeed(seed.slice(0, 32));
+      const address = keypair.publicKey.toBase58();
+      console.log(`Generated SOL address: ${address}`);
+      return address;
     } else {
       console.log(`Placeholder address for ${crypto} (not implemented yet)`);
       return `PlaceholderAddress_${crypto}_${telegram_id}`;
