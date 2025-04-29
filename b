@@ -26,22 +26,14 @@ const getDerivationPath = (coinType, userIndex) => {
 
 const cryptoCoinTypes = {
   BTC: 0,
+  LTC: 2,
   ETH: 60,
   USDT: 60,
   BNB: 60,
+  AVAX: 60,
+  TON: 607,
   ADA: 1815,
   SOL: 501,
-  XRP: 144,
-  DOT: 354,
-  LTC: 2,
-  XMR: 128,
-  TRX: 195,
-  AVAX: 60,
-  ATOM: 118,
-  XTZ: 1729,
-  ALGO: 283,
-  NOT: 607,
-  HMSTR: 607,
 };
 
 const generateAddress = async (telegram_id, crypto) => {
@@ -67,7 +59,7 @@ const generateAddress = async (telegram_id, crypto) => {
       const wallet = Wallet.fromMnemonic(SEED_PHRASE, path);
       console.log(`Generated ETH-based address: ${wallet.address}`);
       return wallet.address;
-    } else if (['NOT', 'HMSTR'].includes(crypto)) {
+    } else if (crypto === 'TON') {
       const path = getDerivationPath(cryptoCoinTypes[crypto], userIndex);
       console.log(`Wallet:`, Wallet);
       const wallet = Wallet.fromMnemonic(SEED_PHRASE, path);
@@ -95,8 +87,8 @@ const generateAddress = async (telegram_id, crypto) => {
       console.log(`Generated SOL address: ${address}`);
       return address;
     } else {
-      console.log(`Placeholder address for ${crypto} (not implemented yet)`);
-      return `PlaceholderAddress_${crypto}_${telegram_id}`;
+      console.log(`Unsupported crypto: ${crypto}`);
+      throw new Error(`Unsupported cryptocurrency: ${crypto}`);
     }
   } catch (error) {
     console.error(`Error generating address for ${crypto}:`, error);
