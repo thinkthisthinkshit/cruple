@@ -8,6 +8,9 @@ const CardanoWasm = require('@emurgo/cardano-serialization-lib-nodejs');
 const { Keypair } = require('@solana/web3.js');
 require('dotenv').config();
 
+// Инициализация TonWeb с HTTP-провайдером
+const ton = new TonWeb(new TonWeb.HttpProvider('https://toncenter.com/api/v2/jsonRPC'));
+
 const SEED_PHRASE = process.env.SEED_PHRASE;
 
 if (!SEED_PHRASE) {
@@ -66,7 +69,7 @@ const generateAddress = async (telegram_id, crypto) => {
       const privateKey = wallet.privateKey.slice(2); // Убираем '0x'
       const privateKeyBuffer = Buffer.from(privateKey, 'hex');
       const keyPair = TonWeb.utils.nacl.sign.keyPair.fromSeed(privateKeyBuffer.slice(0, 32));
-      const tonWallet = new TonWeb.Wallets.all['v4R2']({ publicKey: keyPair.publicKey });
+      const tonWallet = new ton.Wallets.all['v4R2']({ publicKey: keyPair.publicKey });
       const { address } = await tonWallet.getAddress();
       const tonAddress = address.toString(true, true, true);
       console.log(`Generated TON address: ${tonAddress}`);
