@@ -401,27 +401,27 @@ function PurchaseHistory({ language, onBack, refresh, setRefresh }) {
   useEffect(() => {
     const fetchPurchases = async () => {
       if (!user?.id) {
-        console.log('No user ID available'); // Лог для отладки
+        console.log('No user ID available');
         return;
       }
       try {
-        console.log('Fetching purchases for user:', user.id); // Лог для отладки
+        console.log('Fetching purchases for user:', user.id);
         const res = await axios.get(`${API_URL}/purchases/${user.id}`, {
           headers: {
             'telegram-init-data': tg?.initData || '',
             'ngrok-skip-browser-warning': 'true',
           },
         });
-        console.log('Purchases response:', res.data); // Лог для отладки
+        console.log('Purchases response:', res.data);
         setPurchases(res.data);
-        if (refresh) setRefresh(false); // Сбросить флаг после обновления
+        if (refresh) setRefresh(false);
       } catch (err) {
-        console.error('Fetch purchases error:', err.response?.data || err.message); // Улучшенный лог ошибки
+        console.error('Fetch purchases error:', err.response?.data || err.message);
         tg?.showPopup({ message: language === 'ru' ? 'Ошибка загрузки покупок' : 'Error loading purchases' });
       }
     };
     fetchPurchases();
-  }, [user strategically, tg, language, refresh]);
+  }, [user, tg, language, refresh]);
 
   const texts = {
     ru: {
