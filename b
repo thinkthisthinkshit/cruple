@@ -70,7 +70,14 @@ const generateAddress = async (telegram_id, crypto) => {
       const privateKeyBuffer = Buffer.from(privateKey, 'hex');
       const keyPair = TonWeb.utils.nacl.sign.keyPair.fromSeed(privateKeyBuffer.slice(0, 32));
       console.log('TonWeb.Wallets.all:', TonWeb.Wallets.all); // Отладка
-      const tonWallet = new TonWeb.Wallets.all['v4R2'](ton, { publicKey: keyPair.publicKey });
+      const walletOptions = {
+        publicKey: keyPair.publicKey,
+        wc: 0 // Workchain 0
+      };
+      const tonWallet = new TonWeb.Wallets.WalletContract(ton, {
+        ...walletOptions,
+        contract: new TonWeb.Wallets.all['v4R2'](ton, walletOptions)
+      });
       const { address } = await tonWallet.getAddress();
       const tonAddress = address.toString(true, true, true);
       console.log(`Generated TON address: ${tonAddress}`);
