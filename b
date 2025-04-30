@@ -1,3 +1,303 @@
+NumberModal.js:
+import { useState } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
+
+function NumberModal({ country, service, language, onClose, balance }) {
+  const { tg, user } = useTelegram();
+  const [numberData, setNumberData] = useState(null);
+  const [isPurchased, setIsPurchased] = useState(false);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  const texts = {
+    ru: {
+      title: service === 'sms' ? `SMS код и ${country.name_ru}` : `Услуга и ${country.name_ru}`,
+      number: 'Номер:',
+      code: 'Код:',
+      last4: '4 последние цифры:',
+      price: 'Цена:',
+      balance: 'Баланс:',
+      smsPrice: '0.012 €',
+      callPrice: '0.020 €',
+      rentPrice: '5$ в месяц',
+      copy: 'Копировать',
+      buy: 'Купить',
+      notPurchased: 'Не куплено',
+      success: 'Успешно!',
+      insufficientFunds: 'Не хватает средств!',
+    },
+    en: {
+      title: service === 'sms' ? `SMS Code and ${country.name_en}` : `Service and ${country.name_en}`,
+      number: 'Number:',
+      code: 'Code:',
+      last4: 'Last 4 digits:',
+      price: 'Price:',
+      balance: 'Balance:',
+      smsPrice: '0.012 €',
+      callPrice: '0.020 €',
+      rentPrice: '5$ per month',
+      copy: 'Copy',
+      buy: 'Buy',
+      notPurchased: 'Not purchased',
+      success: 'Success!',
+      insufficientFunds: 'Insufficient funds!',
+    },
+  };
+
+  const copyToClipboard = (text) => {
+    if (text) {
+      navigator.clipboard.writeText(text);
+      tg?.showPopup({ message: language === 'ru' ? 'Скопировано!' : 'Copied!' });
+    }
+  };
+
+  const getPrice = () => {
+    switch (service) {
+      case 'sms':
+        return texts[language].smsPrice;
+      case 'call':
+        return texts[language].callPrice;
+      case 'rent':
+        return texts[language].rentPrice;
+      default:
+        return '';
+    }
+  };
+
+  const getPriceValue = () => {
+    switch (service) {
+      case 'sms':
+        return 0.012;
+      case 'call':
+        return 0.020;
+      case 'rent':
+        return 5;
+      default:
+        return 0;
+    }
+  };
+
+  const handleBuy = async () => {
+    const balanceNum = parseFloat(balance);
+    const priceNum = getPriceValue();
+    if (balanceNum < priceNum) {
+      tg?.showPopup({ message: texts[language].insufficientFunds });
+      return;
+    }
+    if (!user?.id) {
+      tg?.showPopup({ message: language === 'ru' ? 'Ошибка: Telegram ID не определён' : 'Error: Telegram ID not defined' });
+      return;
+    }
+    try {
+      const res = await axios.post(
+        `${API_URL}/buy-number`,
+        { telegram_id: user.id, country: country.id, service },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      setNumberData({ ...res.data, service });
+      setIsPurchased(true);
+      tg?.showPopup({ message: texts[language].success });
+    } catch (err) {
+      console.error('Buy number error:', err);
+      tg?.showPopup({ message: language === 'ru' ? `Ошибка покупки: ${err.message}` : `Purchase error: ${err.message}` });
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-xl font-bold mb-4 text-center">{texts[language].title}</h2>
+        <div className="space-y-4">
+          <div>
+            <p className="font-semibold">{texts[language].number}</p>
+            <div className="flex items-center">
+              <span className="flex-1 p-2 bg-blue-100 rounded">
+                {numberData?.number || texts[language].notPurchased}
+              </span>
+              {numberData?.number && (
+                <button
+                  className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+                  onClick={() => copyToClipboard(numberData.number)}
+                >
+                  {texts[language].copy}
+                </button>
+              )}
+            </div>
+          </div>
+          {service === 'sms' && (
+            <div>
+              <p className="font-semibold">{texts[language].code}</p>
+              <div className="flex items-center">
+                <span className="flex-1 p-2 bg-blue-100 rounded">
+                  {numberData?.code || texts[language].notPurchased}
+                </span>
+                {numberData?.code && (
+                  <button
+                    className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+                    onClick={() => copyToClipboard(numberData.code)}
+                  >
+                    {texts[language].copy}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {service === 'call' && (
+            <div>
+              <p className="font-semibold">{texts[language].last4}</p>
+              <div className="flex items-center">
+                <span className="flex-1 p-2 bg-blue-100 rounded">
+                  {numberData?.last4 || texts[language].notPurchased}
+                </span>
+                {numberData?.last4 && (
+                  <button
+                    className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+                    onClick={() => copyToClipboard(numberData.last4)}
+                  >
+                    {texts[language].copy}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <div>
+              <p className="font-semibold">{texts[language].price}</p>
+              <p className="p-2 bg-blue-100 rounded">{getPrice()}</p>
+            </div>
+            <div>
+              <p className="font-semibold">{texts[language].balance}</p>
+              <p className="p-2 bg-blue-100 rounded">{balance} USDT</p>
+            </div>
+          </div>
+        </div>
+        {!isPurchased && (
+          <button
+            className="w-full bg-blue-500 text-white p-2 rounded mt-4"
+            onClick={handleBuy}
+          >
+            {texts[language].buy}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default NumberModal;
+
+
+
+ServiceSelector.js:
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
+import NumberModal from './NumberModal';
+
+function ServiceSelector({ country, language, onBack }) {
+  const { tg, user } = useTelegram();
+  const [service, setService] = useState(null);
+  const [showNumberModal, setShowNumberModal] = useState(false);
+  const [balance, setBalance] = useState('0.00000000');
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
+    }
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
+
+  const handleSelectService = async (selectedService) => {
+    if (!user?.id) {
+      tg?.showPopup({ message: tg?.languageCode === 'ru' ? 'Ошибка: Telegram ID не определён' : 'Error: Telegram ID not defined' });
+      return;
+    }
+    try {
+      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=USDT`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      setBalance(res.data.balance || '0.00000000');
+      setService(selectedService);
+      setShowNumberModal(true);
+    } catch (err) {
+      console.error('Balance fetch error:', err);
+      tg?.showPopup({ message: tg?.languageCode === 'ru' ? `Ошибка получения баланса: ${err.message}` : `Balance fetch error: ${err.message}` });
+    }
+  };
+
+  const texts = {
+    ru: { title: `Выберите сервис для ${country.name_ru}` },
+    en: { title: `Select Service for ${country.name_en}` },
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4 text-center">
+        {texts[language].title}
+      </h1>
+      <div className="flex flex-col gap-2">
+        {[
+          { id: 'sms', name_ru: 'СМС', name_en: 'SMS' },
+          { id: 'call', name_ru: 'Звонок', name_en: 'Call' },
+          { id: 'rent', name_ru: 'Аренда номера', name_en: 'Number Rental' },
+        ].map((s) => (
+          <button
+            key={s.id}
+            className={`p-2 rounded ${service === s.id ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            onClick={() => handleSelectService(s.id)}
+          >
+            {language === 'ru' ? s.name_ru : s.name_en}
+          </button>
+        ))}
+      </div>
+      {showNumberModal && (
+        <NumberModal
+          country={country}
+          service={service}
+          language={language}
+          onClose={() => setShowNumberModal(false)}
+          balance={balance}
+        />
+      )}
+    </div>
+  );
+}
+
+export default ServiceSelector;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 Profile.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
