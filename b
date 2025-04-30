@@ -1,93 +1,125 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
 import BalanceModal from './BalanceModal';
-import './Profile.css';
 
-const Profile = () => {
-  const navigate = useNavigate();
-  const [user, setUser] = useState(null);
-  const [selectedCrypto, setSelectedCrypto] = useState('');
-  const [address, setAddress] = useState('');
-  const [error, setError] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  const cryptocurrencies = ['BTC', 'TON', 'LTC', 'ETH', 'USDT', 'BNB', 'AVAX', 'ADA', 'SOL'];
+function Profile({ username, selectedCrypto, setSelectedCrypto, balance, onBack }) {
+  const { tg, user } = useTelegram();
+  const [showCryptoDropdown, setShowCryptoDropdown] = useState(false);
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [depositAddress, setDepositAddress] = useState('');
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
-    if (window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.ready();
-      const userData = tg.initDataUnsafe?.user;
-      console.log('Profile user:', userData);
-      if (userData?.id) {
-        setUser(userData);
-      } else {
-        setError('User data not found');
-      }
-    } else {
-      setError('Telegram WebApp not initialized');
+    console.log('Profile user:', user); // Отладка
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
     }
-  }, []);
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
 
-  const handleCryptoSelect = async (crypto) => {
-    setSelectedCrypto(crypto);
-    setError('');
-    if (user?.id) {
-      try {
-        console.log(`Fetching address for ${crypto}, telegram_id: ${user.id}`);
-        const response = await fetch(`http://localhost:5000/generate-address/${user.id}?crypto=${crypto}`);
-        const data = await response.json();
-        if (data.address) {
-          setAddress(data.address);
-          setIsModalOpen(true);
-        } else {
-          setError(data.error || 'Failed to generate address');
+  const cryptos = [
+    { id: 'BTC', name: 'Bitcoin' },
+    { id: 'TON', name: 'Toncoin' },
+    { id: 'LTC', name: 'Litecoin' },
+    { id: 'ETH', name: 'Ethereum' },
+    { id: 'USDT', name: 'Tether' },
+    { id: 'BNB', name: 'Binance Coin' },
+    { id: 'AVAX', name: 'Avalanche' },
+    { id: 'ADA', name: 'Cardano' },
+    { id: 'SOL', name: 'Solana' },
+  ];
+
+  const toggleCryptoDropdown = () => {
+    setShowCryptoDropdown(!showCryptoDropdown);
+  };
+
+  const handleDeposit = async () => {
+    if (!user?.id) {
+      console.error('Telegram user ID is undefined');
+      tg?.showPopup({ message: 'Ошибка: Telegram ID не определён' });
+      return;
+    }
+    console.log('Sending request for telegram_id:', user.id, 'crypto:', selectedCrypto);
+    try {
+      const res = await axios.post(
+        `${API_URL}/generate-address/${user.id}`,
+        { crypto: selectedCrypto },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
         }
-      } catch (err) {
-        console.error('Generate address error:', err);
-        setError('Failed to generate address');
-      }
-    } else {
-      setError('User not authenticated');
+      );
+      setDepositAddress(res.data.address);
+      setShowDepositModal(true);
+    } catch (err) {
+      console.error('Generate address error:', err);
+      tg?.showPopup({ message: `Ошибка генерации адреса: ${err.message}` });
     }
   };
 
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setAddress('');
-    setSelectedCrypto('');
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(depositAddress);
+    tg?.showPopup({ message: 'Адрес скопирован!' });
   };
 
-  if (!user) {
-    return <div>{error || 'Loading...'}</div>;
-  }
+  const selectedCryptoData = cryptos.find((c) => c.id === selectedCrypto);
 
   return (
-    <div className="profile">
-      <h1>Profile</h1>
-      <p>Welcome, {user.first_name || 'User'}!</p>
-      <h2>Select Cryptocurrency</h2>
-      <div className="crypto-list">
-        {cryptocurrencies.map((crypto) => (
+    <div className="p-4 max-w-md mx-auto">
+      <div className="flex justify-center items-center mb-4 gap-2">
+        <div className="relative max-w-xs w-full">
           <button
-            key={crypto}
-            onClick={() => handleCryptoSelect(crypto)}
-            className="crypto-button"
+            className="w-full bg-gray-200 bg-opacity-50 text-gray-800 border border-gray-600 border-opacity-50 px-4 py-2 rounded flex justify-between items-center"
+            onClick={toggleCryptoDropdown}
           >
-            {crypto}
+            <span>{selectedCryptoData ? selectedCryptoData.name : 'Select Crypto'}</span>
+            <svg
+              className={`w-4 h-4 transform ${showCryptoDropdown ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
-        ))}
+          {showCryptoDropdown && (
+            <div className="absolute z-10 w-full bg-white border border-gray-300 rounded shadow-lg mt-1 max-h-64 overflow-y-auto">
+              {cryptos.map((crypto) => (
+                <button
+                  key={crypto.id}
+                  className="w-full text-left px-4 py-2 hover:bg-gray-100"
+                  onClick={() => {
+                    setSelectedCrypto(crypto.id);
+                    setShowCryptoDropdown(false);
+                  }}
+                >
+                  {crypto.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+          onClick={handleDeposit}
+        >
+          Пополнить
+        </button>
       </div>
-      {error && <p className="error">{error}</p>}
-      <BalanceModal
-        isOpen={isModalOpen}
-        onClose={closeModal}
-        address={address}
-        crypto={selectedCrypto}
-      />
-      <button onClick={() => navigate('/')}>Back to Home</button>
+      <h1 className="text-2xl font-bold text-center mb-4">{username}</h1>
+      {showDepositModal && (
+        <BalanceModal
+          address={depositAddress}
+          onClose={() => setShowDepositModal(false)}
+          onCopy={copyToClipboard}
+        />
+      )}
     </div>
   );
-};
+}
 
 export default Profile;
