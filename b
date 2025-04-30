@@ -66,7 +66,7 @@ const generateAddress = async (telegram_id, crypto) => {
       const privateKey = wallet.privateKey.slice(2); // Убираем '0x'
       const privateKeyBuffer = Buffer.from(privateKey, 'hex');
       const keyPair = TonWeb.utils.nacl.sign.keyPair.fromSeed(privateKeyBuffer.slice(0, 32));
-      const tonWallet = new TonWeb.Wallets.WalletContractV4({ publicKey: keyPair.publicKey });
+      const tonWallet = new TonWeb.Wallets.all['v4R2']({ publicKey: keyPair.publicKey });
       const { address } = await tonWallet.getAddress();
       const tonAddress = address.toString(true, true, true);
       console.log(`Generated TON address: ${tonAddress}`);
