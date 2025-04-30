@@ -1,4 +1,4 @@
-routes.js:
+кщгеуыЖ
 const express = require('express');
 const db = require('./db');
 const { generateAddress, getBalance } = require('./wallet');
@@ -247,7 +247,8 @@ module.exports = router;
 
 
 
-App.jsx:
+
+APP:
 import { useState, useEffect } from 'react';
 import { useTelegram } from './telegram';
 import CountryList from './components/CountryList';
@@ -277,12 +278,13 @@ function App() {
       } else {
         tg.BackButton.hide();
       }
-      fetchBalance();
+      if (user?.id) {
+        fetchBalance();
+      }
     }
-  }, [tg, showCountryList, showProfile, selectedCrypto]);
+  }, [tg, showCountryList, showProfile, selectedCrypto, user]);
 
   const fetchBalance = async () => {
-    if (!user?.id) return;
     try {
       const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
         headers: {
@@ -297,9 +299,10 @@ function App() {
   };
 
   const handleSelectCrypto = async (crypto) => {
+    if (!user?.id) return;
     try {
       await axios.post(
-        `${API_URL}/select-crypto/${user?.id}`,
+        `${API_URL}/select-crypto/${user.id}`,
         { crypto },
         {
           headers: {
@@ -308,7 +311,7 @@ function App() {
           },
         }
       );
-      setSelectedCrypto_crypto);
+      setSelectedCrypto(crypto);
     } catch (err) {
       console.error('Select crypto error:', err);
     }
@@ -432,9 +435,7 @@ export default App;
 
 
 
-
-
-ServiceSelector.jsx:
+SERVICESELECTOR:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import NumberModal from './NumberModal';
@@ -502,7 +503,8 @@ export default ServiceSelector;
 
 
 
-NumnberModal.jsx:
+
+NUMBERMODAL:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
@@ -528,11 +530,12 @@ function NumberModal({ country, service, language, onClose, selectedCrypto }) {
   ];
 
   useEffect(() => {
-    fetchBalance(currentCrypto);
-  }, [currentCrypto]);
+    if (user?.id) {
+      fetchBalance(currentCrypto);
+    }
+  }, [currentCrypto, user]);
 
   const fetchBalance = async (crypto) => {
-    if (!user?.id) return;
     try {
       const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${crypto}`, {
         headers: {
@@ -586,14 +589,14 @@ function NumberModal({ country, service, language, onClose, selectedCrypto }) {
   // Конверсия евро/долларов в крипту (синхронизировано с бэкендом)
   const convertPriceToCrypto = (euroPrice) => {
     const rates = {
-      USDT: 1, // 1 € ≈ 1 USDT
-      BTC: 0.000015, // 1 € ≈ 0.000015 BTC
-      LTC: 0.012, // 1 € ≈ 0.012 LTC
-      ETH: 0.00033, // 1 € ≈ 0.00033 ETH
-      BNB: 0.0017, // 1 € ≈ 0.0017 BNB
-      AVAX: 0.028, // 1 € ≈ 0.028 AVAX
-      ADA: 2.2, // 1 € ≈ 2.2 ADA
-      SOL: 0.0067, // 1 € ≈ 0.0067 SOL
+      USDT: 1,
+      BTC: 0.000015,
+      LTC: 0.012,
+      ETH: 0.00033,
+      BNB: 0.0017,
+      AVAX: 0.028,
+      ADA: 2.2,
+      SOL: 0.0067,
     };
     return (euroPrice * (rates[currentCrypto] || 1)).toFixed(8);
   };
@@ -608,7 +611,7 @@ function NumberModal({ country, service, language, onClose, selectedCrypto }) {
         euroPrice = 0.020;
         break;
       case 'rent':
-        euroPrice = 5; // Предполагаем 5$ ≈ 5€ для простоты
+        euroPrice = 5;
         break;
       default:
         euroPrice = 0;
@@ -635,14 +638,14 @@ function NumberModal({ country, service, language, onClose, selectedCrypto }) {
   };
 
   const handleBuy = async () => {
+    if (!user?.id) {
+      tg?.showPopup({ message: language === 'ru' ? 'Ошибка: Telegram ID не определён' : 'Error: Telegram ID not defined' });
+      return;
+    }
     const balanceNum = parseFloat(balance);
     const priceNum = parseFloat(getPriceValue());
     if (balanceNum < priceNum) {
       tg?.showPopup({ message: texts[language].insufficientFunds });
-      return;
-    }
-    if (!user?.id) {
-      tg?.showPopup({ message: language === 'ru' ? 'Ошибка: Telegram ID не определён' : 'Error: Telegram ID not defined' });
       return;
     }
     try {
@@ -780,8 +783,6 @@ function NumberModal({ country, service, language, onClose, selectedCrypto }) {
 }
 
 export default NumberModal;
-
-
 
 
 
