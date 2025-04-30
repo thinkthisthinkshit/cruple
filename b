@@ -12,7 +12,8 @@ function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [selectedCrypto, setSelectedCrypto] = useState('BTC');
-  const [balance, setBalance] = useState('0.00000000');
+  const [balance, setBalance] = useState(null);
+
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
@@ -32,26 +33,23 @@ function App() {
   }, [tg, showCountryList, showProfile]);
 
   const fetchBalance = async () => {
-    if (!user?.id) return;
     try {
-      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
+      const res = await axios.get(`${API_URL}/balance/${user?.id}?crypto=${selectedCrypto}`, {
         headers: {
           'telegram-init-data': tg?.initData || '',
           'ngrok-skip-browser-warning': 'true',
         },
       });
       setBalance(res.data.balance || '0.00000000');
-      setSelectedCrypto(res.data.crypto || selectedCrypto);
     } catch (err) {
       console.error('Fetch balance error:', err);
     }
   };
 
   const handleSelectCrypto = async (crypto) => {
-    if (!user?.id) return;
     try {
       await axios.post(
-        `${API_URL}/select-crypto/${user.id}`,
+        `${API_URL}/select-crypto/${user?.id}`,
         { crypto },
         {
           headers: {
@@ -135,7 +133,7 @@ function App() {
         </button>
         <button
           className="bg-gray-500 text-white px-4 py-2 rounded"
-          onClick={() => tg?.showPopup({ message: language === 'ru' ? 'Покупки пока не реализованы' : 'Purchases not implemented yet' })}
+          onClick={() => tg?.showPopup({ message: 'Покупки пока не реализованы' })}
         >
           {texts[language].purchases}
         </button>
@@ -184,180 +182,15 @@ export default App;
 
 
 
-CountryList.jsx:
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import ServiceSelector from './ServiceSelector';
-import { useTelegram } from '../telegram';
-
-function CountryList({ language, onBack, selectedCrypto }) {
-  const { tg } = useTelegram();
-  const [countries, setCountries] = useState([]);
-  const [selectedCountry, setSelectedCountry] = useState(null);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  useEffect(() => {
-    const fetchCountries = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/countries`, {
-          headers: { 'ngrok-skip-browser-warning': 'true' },
-        });
-        setCountries(res.data);
-      } catch (err) {
-        console.error('Fetch countries error:', err);
-      }
-    };
-    fetchCountries();
-    if (tg) {
-      tg.BackButton.show().onClick(onBack);
-    }
-    return () => tg?.BackButton.hide();
-  }, [tg, onBack]);
-
-  const texts = {
-    ru: { title: 'Выберите страну' },
-    en: { title: 'Select Country' },
-  };
-
-  const countryCodes = {
-    us: '+1',
-    ru: '+7',
-    uk: '+44',
-    fr: '+33',
-    de: '+49',
-    it: '+39',
-    es: '+34',
-    cn: '+86',
-    jp: '+81',
-    in: '+91',
-    br: '+55',
-    ca: '+1',
-    au: '+61',
-    za: '+27',
-    mx: '+52',
-    ar: '+54',
-    cl: '+56',
-    co: '+57',
-    pe: '+51',
-    ve: '+58',
-    eg: '+20',
-    ng: '+234',
-    ke: '+254',
-    gh: '+233',
-    dz: '+213',
-    ma: '+212',
-    sa: '+966',
-    ae: '+971',
-    tr: '+90',
-    pl: '+48',
-    ua: '+380',
-    by: '+375',
-    kz: '+7',
-    uz: '+998',
-    ge: '+995',
-    am: '+374',
-    az: '+994',
-    id: '+62',
-    th: '+66',
-    vn: '+84',
-    ph: '+63',
-    my: '+60',
-    sg: '+65',
-    kr: '+82',
-    pk: '+92',
-    bd: '+880',
-    lk: '+94',
-    np: '+977',
-    mm: '+95',
-    kh: '+855',
-    la: '+856',
-    se: '+46',
-    no: '+47',
-    fi: '+358',
-    dk: '+45',
-    nl: '+31',
-    be: '+32',
-    at: '+43',
-    ch: '+41',
-    gr: '+30',
-    pt: '+351',
-    ie: '+353',
-    cz: '+420',
-    sk: '+421',
-    hu: '+36',
-    ro: '+40',
-    bg: '+359',
-    hr: '+385',
-    rs: '+381',
-    ba: '+387',
-  };
-
-  const convertPriceToCrypto = (euroPrice) => {
-    const rates = {
-      USDT: 1,
-      BTC: 0.000015,
-      LTC: 0.012,
-      ETH: 0.00033,
-      BNB: 0.0017,
-      AVAX: 0.028,
-      ADA: 2.2,
-      SOL: 0.0067,
-    };
-    return (euroPrice * (rates[selectedCrypto] || 1)).toFixed(8);
-  };
-
-  if (selectedCountry) {
-    return (
-      <ServiceSelector
-        country={selectedCountry}
-        language={language}
-        onBack={() => setSelectedCountry(null)}
-        selectedCrypto={selectedCrypto}
-      />
-    );
-  }
-
-  return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">
-        {texts[language].title}
-      </h1>
-      <div className="space-y-2">
-        {countries.map((country) => (
-          <button
-            key={country.id}
-            className="flex justify-between items-center p-2 bg-gray-100 rounded w-full"
-            onClick={() => setSelectedCountry(country)}
-          >
-            <span>
-              {language === 'ru' ? country.name_ru : country.name_en} ({countryCodes[country.id] || '+'})
-            </span>
-            <span className="text-green-600">{convertPriceToCrypto(0.012)} {selectedCrypto}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default CountryList;
-
-
-
-
-
 ServiceSelector.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
-import axios from 'axios';
 import NumberModal from './NumberModal';
 
 function ServiceSelector({ country, language, onBack, selectedCrypto }) {
-  const { tg, user } = useTelegram();
+  const { tg } = useTelegram();
   const [service, setService] = useState(null);
   const [showNumberModal, setShowNumberModal] = useState(false);
-  const [balance, setBalance] = useState('0.00000000');
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     if (tg) {
@@ -366,29 +199,13 @@ function ServiceSelector({ country, language, onBack, selectedCrypto }) {
     return () => tg?.BackButton.hide();
   }, [tg, onBack]);
 
-  const handleSelectService = async (selectedService) => {
-    if (!user?.id) {
-      tg?.showPopup({ message: tg?.languageCode === 'ru' ? 'Ошибка: Telegram ID не определён' : 'Error: Telegram ID not defined' });
-      return;
-    }
+  const handleSelectService = (selectedService) => {
     if (!selectedCrypto) {
       tg?.showPopup({ message: tg?.languageCode === 'ru' ? 'Выберите валюту в профиле' : 'Select a currency in profile' });
       return;
     }
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setBalance(res.data.balance || '0.00000000');
-      setService(selectedService);
-      setShowNumberModal(true);
-    } catch (err) {
-      console.error('Balance fetch error:', err);
-      tg?.showPopup({ message: tg?.languageCode === 'ru' ? `Ошибка получения баланса: ${err.message}` : `Balance fetch error: ${err.message}` });
-    }
+    setService(selectedService);
+    setShowNumberModal(true);
   };
 
   const texts = {
@@ -422,7 +239,6 @@ function ServiceSelector({ country, language, onBack, selectedCrypto }) {
           service={service}
           language={language}
           onClose={() => setShowNumberModal(false)}
-          balance={balance}
           selectedCrypto={selectedCrypto}
         />
       )}
@@ -435,16 +251,52 @@ export default ServiceSelector;
 
 
 
+
+
 NumberModal.jsx:
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
 
-function NumberModal({ country, service, language, onClose, balance, selectedCrypto }) {
+function NumberModal({ country, service, language, onClose, selectedCrypto }) {
   const { tg, user } = useTelegram();
   const [numberData, setNumberData] = useState(null);
   const [isPurchased, setIsPurchased] = useState(false);
+  const [currentCrypto, setCurrentCrypto] = useState(selectedCrypto);
+  const [balance, setBalance] = useState('0.00000000');
+  const [showCryptoDropdown, setShowCryptoDropdown] = useState(false);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  const cryptos = [
+    { id: 'BTC', name: 'Bitcoin' },
+    { id: 'LTC', name: 'Litecoin' },
+    { id: 'ETH', name: 'Ethereum' },
+    { id: 'USDT', name: 'Tether' },
+    { id: 'BNB', name: 'Binance Coin' },
+    { id: 'AVAX', name: 'Avalanche' },
+    { id: 'ADA', name: 'Cardano' },
+    { id: 'SOL', name: 'Solana' },
+  ];
+
+  useEffect(() => {
+    fetchBalance(currentCrypto);
+  }, [currentCrypto]);
+
+  const fetchBalance = async (crypto) => {
+    if (!user?.id) return;
+    try {
+      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${crypto}`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      setBalance(res.data.balance || '0.00000000');
+    } catch (err) {
+      console.error('Balance fetch error:', err);
+      tg?.showPopup({ message: language === 'ru' ? `Ошибка получения баланса: ${err.message}` : `Balance fetch error: ${err.message}` });
+    }
+  };
 
   const texts = {
     ru: {
@@ -457,7 +309,7 @@ function NumberModal({ country, service, language, onClose, balance, selectedCry
       copy: 'Копировать',
       buy: 'Купить',
       notPurchased: 'Не куплено',
-      success: 'Успешно!',
+      success: 'Успешно! ✅',
       insufficientFunds: 'Не хватает средств!',
     },
     en: {
@@ -470,7 +322,7 @@ function NumberModal({ country, service, language, onClose, balance, selectedCry
       copy: 'Copy',
       buy: 'Buy',
       notPurchased: 'Not purchased',
-      success: 'Success!',
+      success: 'Success! ✅',
       insufficientFunds: 'Insufficient funds!',
     },
   };
@@ -482,18 +334,19 @@ function NumberModal({ country, service, language, onClose, balance, selectedCry
     }
   };
 
+  // Заглушка для конверсии евро/долларов в крипту
   const convertPriceToCrypto = (euroPrice) => {
     const rates = {
-      USDT: 1,
-      BTC: 0.000015,
-      LTC: 0.012,
-      ETH: 0.00033,
-      BNB: 0.0017,
-      AVAX: 0.028,
-      ADA: 2.2,
-      SOL: 0.0067,
+      USDT: 1, // 1 € ≈ 1 USDT
+      BTC: 0.000015, // 1 € ≈ 0.000015 BTC
+      LTC: 0.012, // 1 € ≈ 0.012 LTC
+      ETH: 0.00033, // 1 € ≈ 0.00033 ETH
+      BNB: 0.0017, // 1 € ≈ 0.0017 BNB
+      AVAX: 0.028, // 1 € ≈ 0.028 AVAX
+      ADA: 2.2, // 1 € ≈ 2.2 ADA
+      SOL: 0.0067, // 1 € ≈ 0.0067 SOL
     };
-    return (euroPrice * (rates[selectedCrypto] || 1)).toFixed(8);
+    return (euroPrice * (rates[currentCrypto] || 1)).toFixed(8);
   };
 
   const getPrice = () => {
@@ -506,12 +359,12 @@ function NumberModal({ country, service, language, onClose, balance, selectedCry
         euroPrice = 0.020;
         break;
       case 'rent':
-        euroPrice = 5;
+        euroPrice = 5; // Предполагаем 5$ ≈ 5€ для простоты
         break;
       default:
         euroPrice = 0;
     }
-    return `${convertPriceToCrypto(euroPrice)} ${selectedCrypto}`;
+    return `${convertPriceToCrypto(euroPrice)} ${currentCrypto}`;
   };
 
   const getPriceValue = () => {
@@ -546,7 +399,7 @@ function NumberModal({ country, service, language, onClose, balance, selectedCry
     try {
       const res = await axios.post(
         `${API_URL}/buy-number`,
-        { telegram_id: user.id, country: country.id, service, currency: selectedCrypto },
+        { telegram_id: user.id, country: country.id, service, currency: currentCrypto },
         {
           headers: {
             'telegram-init-data': tg?.initData || '',
@@ -631,9 +484,32 @@ function NumberModal({ country, service, language, onClose, balance, selectedCry
               <p className="font-semibold">{texts[language].price}</p>
               <p className="p-2 bg-blue-100 rounded">{getPrice()}</p>
             </div>
-            <div>
-              <p className="font-semibold">{texts[language].balance}</p>
-              <p className="p-2 bg-blue-100 rounded">{balance} {selectedCrypto}</p>
+            <div className="relative">
+              <p
+                className="font-semibold cursor-pointer"
+                onClick={() => setShowCryptoDropdown(!showCryptoDropdown)}
+              >
+                {texts[language].balance}
+              </p>
+              <p className="p-2 bg-blue-100 rounded">
+                {balance} {currentCrypto}
+              </p>
+              {showCryptoDropdown && (
+                <div className="absolute z-10 w-full bg-white border border-gray-300 rounded shadow-lg mt-1 max-h-48 overflow-y-auto">
+                  {cryptos.map((crypto) => (
+                    <button
+                      key={crypto.id}
+                      className="w-full text-left px-4 py-2 hover:bg-gray-100"
+                      onClick={() => {
+                        setCurrentCrypto(crypto.id);
+                        setShowCryptoDropdown(false);
+                      }}
+                    >
+                      {crypto.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -651,6 +527,8 @@ function NumberModal({ country, service, language, onClose, balance, selectedCry
 }
 
 export default NumberModal;
+
+
 
 
 
