@@ -32,6 +32,7 @@ const purchaseSchema = new mongoose.Schema({
   code: String,
   number: String,
   price: String,
+  status: { type: String, enum: ['active', 'completed'], default: 'active' },
   created_at: { type: Date, default: Date.now },
 });
 
@@ -40,31 +41,6 @@ const Purchase = mongoose.model('Purchase', purchaseSchema);
 
 module.exports = { connectDB, User, Purchase };
 
-
-
-server.js:
-const express = require('express');
-const cors = require('cors');
-const routes = require('./routes');
-const { connectDB } = require('./db');
-require('dotenv').config();
-
-const app = express();
-const port = process.env.PORT || 5000;
-
-app.use(cors({
-  origin: process.env.WEB_APP_URL,
-  credentials: true,
-}));
-app.use(express.json());
-app.use('/', routes);
-
-// Подключение к MongoDB
-connectDB();
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
 
 
 
@@ -226,6 +202,7 @@ router.post('/buy', async (req, res) => {
       country,
       resource,
       code,
+      status: 'active',
     });
     user.balance -= 0.0001;
     await user.save();
@@ -264,7 +241,7 @@ router.post('/select-crypto/:telegram_id', async (req, res) => {
 
 router.post('/buy-number', async (req, res) => {
   const { telegram_id, country, service, currency } = req.body;
-  console.log('Buy number request:', { telegram_id, country, service, currency }); // Лог для отладки
+  console.log('Buy number request:', { telegram_id, country, service, currency });
   try {
     let user = await User.findOne({ telegram_id });
     if (!user) {
@@ -289,7 +266,7 @@ router.get('/purchases/:telegram_id', async (req, res) => {
   const { telegram_id } = req.params;
   try {
     const purchases = await Purchase.find({ telegram_id }).sort({ created_at: -1 });
-    console.log('Purchases fetched:', purchases); // Лог для отладки
+    console.log('Purchases fetched:', purchases);
     const formattedPurchases = purchases.map((purchase) => ({
       id: purchase._id,
       telegram_id: purchase.telegram_id,
@@ -303,6 +280,7 @@ router.get('/purchases/:telegram_id', async (req, res) => {
       number: purchase.number || `+${Math.floor(10000000000 + Math.random() * 90000000000)}`,
       price: purchase.price || '0.00018000 BTC',
       created_at: purchase.created_at.toISOString(),
+      status: purchase.status,
     }));
     res.json(formattedPurchases);
   } catch (err) {
@@ -311,8 +289,28 @@ router.get('/purchases/:telegram_id', async (req, res) => {
   }
 });
 
+router.post('/complete-purchase/:purchase_id', async (req, res) => {
+  const { purchase_id } = req.params;
+  try {
+    const purchase = await Purchase.findById(purchase_id);
+    if (!purchase) {
+      return res.status(404).json({ error: 'Purchase not found' });
+    }
+    if (purchase.status === 'completed') {
+      return res.json({ success: false, error: 'Purchase already completed' });
+    }
+    purchase.status = 'completed';
+    await purchase.save();
+    console.log('Purchase completed:', purchase);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Complete purchase error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 async function processPurchase(user, telegram_id, country, service, currency, res) {
-  console.log('Processing purchase:', { telegram_id, country, service, currency }); // Лог для отладки
+  console.log('Processing purchase:', { telegram_id, country, service, currency });
   const addresses = user.addresses || {};
   const address = addresses[currency] || '';
   const balance = user.balance || (await getBalance(address)) || 0;
@@ -333,7 +331,7 @@ async function processPurchase(user, telegram_id, country, service, currency, re
   };
   const price = (priceInCrypto * (rates[currency] || 1)).toFixed(8);
   if (balance < price) {
-    console.log('Insufficient funds:', { balance, price }); // Лог для отладки
+    console.log('Insufficient funds:', { balance, price });
     return res.json({ success: false, error: 'Недостаточно средств' });
   }
   const number = `+${Math.floor(10000000000 + Math.random() * 90000000000)}`;
@@ -348,12 +346,13 @@ async function processPurchase(user, telegram_id, country, service, currency, re
       code: code || number,
       number,
       price: `${price} ${currency}`,
+      status: 'active',
       created_at: new Date(),
     });
-    console.log('Purchase created:', purchase); // Лог для отладки
+    console.log('Purchase created:', purchase);
     user.balance -= parseFloat(price);
     await user.save();
-    console.log('Balance updated:', { telegram_id, newBalance: user.balance }); // Лог для отладки
+    console.log('Balance updated:', { telegram_id, newBalance: user.balance });
     res.json({
       success: true,
       number,
@@ -363,6 +362,7 @@ async function processPurchase(user, telegram_id, country, service, currency, re
       price: `${price} ${currency}`,
       country: countries.find((c) => c.id === country) || { id: country, name_en: country, name_ru: country },
       service,
+      purchase_id: purchase._id,
     });
   } catch (err) {
     console.error('Process purchase error:', err);
@@ -381,12 +381,255 @@ module.exports = router;
 
 
 
-PurchaseHistory:
+App.jsx:
+import { useState, useEffect } from 'react';
+import { useTelegram } from './telegram';
+import CountryList from './components/CountryList';
+import Profile from './components/Profile';
+import PurchaseResult from './components/PurchaseResult';
+import PurchaseHistory from './components/PurchaseHistory';
+import axios from 'axios';
+
+function App() {
+  const { tg, user } = useTelegram();
+  const [language, setLanguage] = useState('ru');
+  const [showCountryList, setShowCountryList] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [showPurchaseResult, setShowPurchaseResult] = useState(false);
+  const [showPurchaseHistory, setShowPurchaseHistory] = useState(false);
+  const [purchaseData, setPurchaseData] = useState(null);
+  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
+  const [balance, setBalance] = useState('0.00000000');
+  const [refreshPurchases, setRefreshPurchases] = useState(false);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    if (tg) {
+      tg.ready();
+      console.log('Telegram user:', user);
+      tg.BackButton.onClick(() => {
+        if (showProfile) setShowProfile(false);
+        else if (showCountryList) setShowCountryList(false);
+        else if (showPurchaseResult) {
+          setShowPurchaseResult(false);
+          setRefreshPurchases(true);
+        } else if (showPurchaseHistory) setShowPurchaseHistory(false);
+      });
+      if (showCountryList || showProfile || showPurchaseResult || showPurchaseHistory) {
+        tg.BackButton.show();
+      } else {
+        tg.BackButton.hide();
+      }
+      if (user?.id) {
+        fetchBalance();
+      }
+    }
+  }, [tg, showCountryList, showProfile, showPurchaseResult, showPurchaseHistory, selectedCrypto, user]);
+
+  const fetchBalance = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      setBalance(res.data.balance || '0.00000000');
+    } catch (err) {
+      console.error('Fetch balance error:', err);
+    }
+  };
+
+  const handleSelectCrypto = async (crypto) => {
+    if (!user?.id) return;
+    try {
+      await axios.post(
+        `${API_URL}/select-crypto/${user.id}`,
+        { crypto },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      setSelectedCrypto(crypto);
+    } catch (err) {
+      console.error('Select crypto error:', err);
+    }
+  };
+
+  const handleViewPurchase = (purchase) => {
+    setPurchaseData({
+      ...purchase,
+      purchase_id: purchase.id,
+      country: purchase.country,
+      service: purchase.service,
+      number: purchase.number,
+      price: purchase.price,
+      code: purchase.code,
+      expiry: purchase.expiry || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+    setShowPurchaseResult(true);
+    setShowPurchaseHistory(false);
+  };
+
+  const texts = {
+    ru: {
+      title: 'Виртуальные сим-карты',
+      subtitle: 'Более 70 стран от 0.01 €',
+      buy: 'Купить',
+      purchases: 'Мои покупки',
+    },
+    en: {
+      title: 'Virtual SIM Cards',
+      subtitle: 'Over 70 countries from 0.01 €',
+      buy: 'Buy',
+      purchases: 'My Purchases',
+    },
+  };
+
+  if (showPurchaseResult) {
+    return (
+      <PurchaseResult
+        language={language}
+        purchaseData={purchaseData}
+        onBack={() => {
+          setShowPurchaseResult(false);
+          setRefreshPurchases(true);
+        }}
+        balance={balance}
+        selectedCrypto={selectedCrypto}
+      />
+    );
+  }
+
+  if (showPurchaseHistory) {
+    return (
+      <PurchaseHistory
+        language={language}
+        onBack={() => setShowPurchaseHistory(false)}
+        refresh={refreshPurchases}
+        setRefresh={setRefreshPurchases}
+        onViewPurchase={handleViewPurchase}
+      />
+    );
+  }
+
+  if (showProfile) {
+    return (
+      <Profile
+        username={user?.first_name || 'User'}
+        selectedCrypto={selectedCrypto}
+        setSelectedCrypto={handleSelectCrypto}
+        balance={balance}
+        onBack={() => setShowProfile(false)}
+      />
+    );
+  }
+
+  if (showCountryList) {
+    return (
+      <CountryList
+        language={language}
+        onBack={() => setShowCountryList(false)}
+        selectedCrypto={selectedCrypto}
+        setShowPurchaseResult={setShowPurchaseResult}
+        setPurchaseData={setPurchaseData}
+      />
+    );
+  }
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      <div className="flex justify-between mb-4">
+        <button
+          className="bg-gray-200 px-3 py-1 rounded"
+          onClick={() => setShowLanguageModal(true)}
+        >
+          {language.toUpperCase()}
+        </button>
+        <button
+          className="text-lg font-semibold text-blue-500"
+          onClick={() => setShowProfile(true)}
+        >
+          {user?.first_name || 'User'}
+        </button>
+      </div>
+      <h1 className="text-2xl font-bold text-center mb-2">
+        {texts[language].title}
+      </h1>
+      <p className="text-center text-gray-600 mb-6">
+        {texts[language].subtitle}
+      </p>
+      <div className="flex flex-col gap-4">
+        <button
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+          onClick={() => setShowCountryList(true)}
+        >
+          {texts[language].buy}
+        </button>
+        <button
+          className="bg-gray-500 text-white px-4 py-2 rounded"
+          onClick={() => setShowPurchaseHistory(true)}
+        >
+          {texts[language].purchases}
+        </button>
+      </div>
+      {showLanguageModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+          onClick={() => setShowLanguageModal(false)}
+        >
+          <div
+            className="bg-white p-4 rounded-lg max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">
+              {language === 'ru' ? 'Выберите язык' : 'Select Language'}
+            </h2>
+            <button
+              className="w-full mb-2 bg-gray-200 p-2 rounded"
+              onClick={() => {
+                setLanguage('ru');
+                setShowLanguageModal(false);
+              }}
+            >
+              Русский
+            </button>
+            <button
+              className="w-full mb-2 bg-gray-200 p-2 rounded"
+              onClick={() => {
+                setLanguage('en');
+                setShowLanguageModal(false);
+              }}
+            >
+              English
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
+
+
+
+
+
+
+
+
+
+PurchaseHistory.js:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
 
-function PurchaseHistory({ language, onBack, refresh, setRefresh }) {
+function PurchaseHistory({ language, onBack, refresh, setRefresh, onViewPurchase }) {
   const { tg, user } = useTelegram();
   const [purchases, setPurchases] = useState([]);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
@@ -432,6 +675,10 @@ function PurchaseHistory({ language, onBack, refresh, setRefresh }) {
       service: 'Сервис:',
       price: 'Цена:',
       date: 'Дата:',
+      status: 'Статус:',
+      active: 'Активна',
+      completed: 'Завершена',
+      view: 'Просмотреть',
       empty: 'Покупок пока нет',
     },
     en: {
@@ -442,6 +689,10 @@ function PurchaseHistory({ language, onBack, refresh, setRefresh }) {
       service: 'Service:',
       price: 'Price:',
       date: 'Date:',
+      status: 'Status:',
+      active: 'Active',
+      completed: 'Completed',
+      view: 'View',
       empty: 'No purchases yet',
     },
   };
@@ -505,6 +756,25 @@ function PurchaseHistory({ language, onBack, refresh, setRefresh }) {
                 <p className="font-semibold">{texts[language].date}</p>
                 <p>{formatDate(purchase.created_at)}</p>
               </div>
+              <div className="flex justify-between items-center">
+                <p className="font-semibold">{texts[language].status}</p>
+                <div className="flex items-center">
+                  <span
+                    className={`w-3 h-3 rounded-full mr-2 ${
+                      purchase.status === 'active' ? 'bg-green-500' : 'bg-red-500'
+                    }`}
+                  ></span>
+                  <p>{purchase.status === 'active' ? texts[language].active : texts[language].completed}</p>
+                </div>
+              </div>
+              {purchase.status === 'active' && (
+                <button
+                  className="mt-2 w-full bg-blue-500 text-white px-4 py-2 rounded"
+                  onClick={() => onViewPurchase(purchase)}
+                >
+                  {texts[language].view}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -514,6 +784,169 @@ function PurchaseHistory({ language, onBack, refresh, setRefresh }) {
 }
 
 export default PurchaseHistory;
+
+
+
+
+
+
+
+
+
+PurchaseResult:
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
+
+function PurchaseResult({ language, purchaseData, onBack, balance, selectedCrypto }) {
+  const { tg } = useTelegram();
+  const [code, setCode] = useState(purchaseData.code || '');
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
+    }
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
+
+  useEffect(() => {
+    if (purchaseData.service === 'sms' && !code) {
+      const timer = setTimeout(() => {
+        setCode(`CODE-${Math.random().toString(36).slice(2, 8)}`);
+      }, 30000);
+      return () => clearTimeout(timer);
+    }
+  }, [purchaseData.service, code]);
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    tg?.showPopup({ message: language === 'ru' ? 'Скопировано!' : 'Copied!' });
+  };
+
+  const completePurchase = async () => {
+    try {
+      await axios.post(
+        `${API_URL}/complete-purchase/${purchaseData.purchase_id}`,
+        {},
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      tg?.showPopup({ message: language === 'ru' ? 'Покупка завершена!' : 'Purchase completed!' });
+      onBack();
+    } catch (err) {
+      console.error('Complete purchase error:', err);
+      tg?.showPopup({
+        message: language === 'ru' ? 'Ошибка завершения покупки' : 'Error completing purchase',
+      });
+    }
+  };
+
+  const texts = {
+    ru: {
+      title: 'Результат покупки',
+      number: 'Номер:',
+      price: 'Цена:',
+      code: 'Код:',
+      waiting: 'Ожидание кода...',
+      copy: 'Копировать',
+      complete: 'Принять код',
+      expiry: 'Действует до:',
+      balance: 'Баланс:',
+      crypto: 'Валюта:',
+    },
+    en: {
+      title: 'Purchase Result',
+      number: 'Number:',
+      price: 'Price:',
+      code: 'Code:',
+      waiting: 'Waiting for code...',
+      copy: 'Copy',
+      complete: 'Accept Code',
+      expiry: 'Valid until:',
+      balance: 'Balance:',
+      crypto: 'Currency:',
+    },
+  };
+
+  const formatDate = (dateStr) => {
+    const date = new Date(dateStr);
+    return date.toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4 text-center">{texts[language].title}</h1>
+      <div className="p-4 bg-gray-100 rounded-lg shadow">
+        <div className="flex justify-between mb-2">
+          <p className="font-semibold">{texts[language].number}</p>
+          <div className="flex items-center">
+            <p>{purchaseData.number}</p>
+            <button
+              className="ml-2 text-blue-500"
+              onClick={() => copyToClipboard(purchaseData.number)}
+            >
+              {texts[language].copy}
+            </button>
+          </div>
+        </div>
+        <div className="flex justify-between mb-2">
+          <p className="font-semibold">{texts[language].price}</p>
+          <p>{purchaseData.price}</p>
+        </div>
+        {purchaseData.service === 'sms' && (
+          <div className="flex justify-between mb-2">
+            <p className="font-semibold">{texts[language].code}</p>
+            <div className="flex items-center">
+              <p>{code || texts[language].waiting}</p>
+              {code && (
+                <button
+                  className="ml-2 text-blue-500"
+                  onClick={() => copyToClipboard(code)}
+                >
+                  {texts[language].copy}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="flex justify-between mb-2">
+          <p className="font-semibold">{texts[language].expiry}</p>
+          <p>{formatDate(purchaseData.expiry)}</p>
+        </div>
+        <div className="flex justify-between mb-2">
+          <p className="font-semibold">{texts[language].balance}</p>
+          <p>{balance}</p>
+        </div>
+        <div className="flex justify-between mb-2">
+          <p className="font-semibold">{texts[language].crypto}</p>
+          <p>{selectedCrypto}</p>
+        </div>
+        {purchaseData.service === 'sms' && code && (
+          <button
+            className="mt-4 w-full bg-green-500 text-white px-4 py-2 rounded"
+            onClick={completePurchase}
+          >
+            {texts[language].complete}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default PurchaseResult;
+
 
 
 
