@@ -1,23 +1,59 @@
-function ServiceSelector({ language, selectedService, setService }) {
-  const services = [
-    { id: 'sms', name_ru: 'СМС', name_en: 'SMS' },
-    { id: 'call', name_ru: 'Звонок', name_en: 'Call' },
-    { id: 'rent', name_ru: 'Аренда номера', name_en: 'Number Rental' },
-  ];
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import NumberModal from './NumberModal';
+
+function ServiceSelector({ country, language, onBack, selectedCrypto, setShowPurchaseResult, setPurchaseData }) {
+  const { tg } = useTelegram();
+  const [service, setService] = useState(null);
+  const [showNumberModal, setShowNumberModal] = useState(false);
+
+  useEffect(() => {
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
+    }
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
+
+  const handleSelectService = (selectedService) => {
+    setService(selectedService);
+    setShowNumberModal(true);
+  };
+
+  const texts = {
+    ru: { title: country ? `Выберите сервис для ${country.name_ru}` : 'Выберите сервис' },
+    en: { title: country ? `Select Service for ${country.name_en}` : 'Select Service' },
+  };
 
   return (
-    <div className="flex flex-col gap-2">
-      {services.map((service) => (
-        <button
-          key={service.id}
-          className={`px-4 py-2 rounded ${
-            selectedService === service.id ? 'bg-blue-500 text-white' : 'bg-gray-200'
-          }`}
-          onClick={() => setService(service.id)}
-        >
-          {language === 'ru' ? service.name_ru : service.name_en}
-        </button>
-      ))}
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4 text-center">
+        {texts[language].title}
+      </h1>
+      <div className="flex flex-col gap-2">
+        {[
+          { id: 'sms', name_ru: 'СМС', name_en: 'SMS' },
+          { id: 'call', name_ru: 'Звонок', name_en: 'Call' },
+          { id: 'rent', name_ru: 'Аренда номера', name_en: 'Number Rental' },
+        ].map((s) => (
+          <button
+            key={s.id}
+            className={`p-2 rounded ${service === s.id ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            onClick={() => handleSelectService(s.id)}
+          >
+            {language === 'ru' ? s.name_ru : s.name_en}
+          </button>
+        ))}
+      </div>
+      {showNumberModal && (
+        <NumberModal
+          country={country}
+          language={language}
+          onBack={() => setShowNumberModal(false)}
+          selectedCrypto={selectedCrypto}
+          setShowPurchaseResult={setShowPurchaseResult}
+          setPurchaseData={setPurchaseData}
+        />
+      )}
     </div>
   );
 }
@@ -29,6 +65,8 @@ export default ServiceSelector;
 
 
 
+
+NUMBMODAL
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
@@ -148,3 +186,113 @@ function NumberModal({ language, country, onBack, selectedCrypto, setShowPurchas
 }
 
 export default NumberModal;
+
+
+
+
+
+
+
+
+
+
+COUNTRYLIST
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
+import ServiceSelector from './ServiceSelector';
+
+function CountryList({ language, onBack, selectedCrypto, setShowPurchaseResult, setPurchaseData }) {
+  const { tg } = useTelegram();
+  const [countries, setCountries] = useState([]);
+  const [search, setSearch] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState(null);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/countries`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+        });
+        setCountries(res.data);
+      } catch (err) {
+        console.error('Fetch countries error:', err);
+      }
+    };
+    fetchCountries();
+  }, []);
+
+  useEffect(() => {
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
+    }
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
+
+  const filteredCountries = countries.filter((country) =>
+    language === 'ru'
+      ? country.name_ru.toLowerCase().includes(search.toLowerCase())
+      : country.name_en.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleSelectCountry = (country) => {
+    setSelectedCountry(country);
+  };
+
+  const texts = {
+    ru: {
+      title: 'Выберите страну',
+      search: 'Поиск...',
+    },
+    en: {
+      title: 'Select Country',
+      search: 'Search...',
+    },
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      {selectedCountry ? (
+        <ServiceSelector
+          country={selectedCountry}
+          language={language}
+          onBack={() => setSelectedCountry(null)}
+          selectedCrypto={selectedCrypto}
+          setShowPurchaseResult={setShowPurchaseResult}
+          setPurchaseData={setPurchaseData}
+        />
+      ) : (
+        <>
+          <h1 className="text-2xl font-bold mb-4 text-center">{texts[language].title}</h1>
+          <input
+            type="text"
+            className="w-full p-2 mb-4 border rounded"
+            placeholder={texts[language].search}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <div className="space-y-2">
+            {filteredCountries.map((country) => (
+              <button
+                key={country.id}
+                className="w-full p-2 bg-gray-100 rounded text-left"
+                onClick={() => handleSelectCountry(country)}
+              >
+                {language === 'ru' ? country.name_ru : country.name_en}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default CountryList;
+
+
+
+
+
+
