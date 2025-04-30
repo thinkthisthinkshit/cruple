@@ -1,4 +1,4 @@
-кщгеуыЖ
+routes:
 const express = require('express');
 const db = require('./db');
 const { generateAddress, getBalance } = require('./wallet');
@@ -195,16 +195,192 @@ router.post('/buy-number', async (req, res) => {
       return res.status(500).json({ error: 'DB error' });
     }
     if (!row) {
-      return res.json({ success: false, error: 'Пользователь не найден' });
+      const index = Math.floor(Math.random() * 1000000);
+      db.run(
+        'INSERT INTO users (telegram_id, wallet_index, address, addresses, balance, crypto) VALUES (?, ?, ?, ?, ?, ?)',
+        [telegram_id, index, '', '{}', 1.0, currency || 'BTC'],
+        async (err) => {
+          if (err) {
+            return res.status(500).json({ error: 'DB error' });
+          }
+          // Повторно получить данные пользователя после создания
+          db.get('SELECT balance, crypto, addresses FROM users WHERE telegram_id = ?', [telegram_id], async (err, newRow) => {
+            if (err) {
+              return res.status(500).json({ error: 'DB error' });
+            }
+            await processPurchase(newRow, telegram_id, country, service, currency, res);
+          });
+        }
+      );
+    } else {
+      await processPurchase(row, telegram_id, country, service, currency, res);
     }
-    const addresses = row.addresses ? JSON.parse(row.addresses) : {};
-    const address = addresses[currency] || '';
-    const balance = row.balance || (await getBalance(address)) || 0;
-    const priceInCrypto = {
-      sms: 0.012,
-      call: 0.020,
-      rent: 5,
-    }[service];
+  });
+});
+
+async function processPurchase(row, telegram_id, country, service, currency, res) {
+  const addresses = row.addresses ? JSON.parse(row.addresses) : {};
+  const address = addresses[currency] || '';
+  const balance = row.balance || (await getBalance(address)) || 0;
+  const priceInCrypto = {
+    sms: 0.012,
+    call: 0.020,
+    rent: 5,
+  }[service];
+  const rates = {
+    USDT: 1,
+    BTC: 0.000015,
+    LTC: 0.012,
+    ETH: 0.00033,
+    BNB: 0.0017,
+    AVAX: 0.028,
+    ADA: 2.2,
+    SOL: 0.0067,
+  };
+  const price = (priceInCrypto * (rates[currency] || 1)).toFixed(8);
+  if (balance < price) {
+    return res.json({ success: false, error: 'Недостаточно средств' });
+  }
+  const number = `+${Math.floor(10000000000 + Math.random() * 90000000000)}`;
+  const code = service === 'sms' ? `CODE-${Math.random().toString(36).slice(2, 8)}` : null;
+  const last4 = service === 'call' ? number.slice(-4) : null;
+  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  db.run(
+    'INSERT INTO purchases (telegram_id, country, resource, code) VALUES (?, ?, ?, ?)',
+    [telegram_id, country, service, code || number],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: 'DB error' });
+      }
+      db.run(
+        'UPDATE users SET balance = balance - ? WHERE telegram_id = ?',
+        [price, telegram_id],
+        (err) => {
+          if (err) {
+            return res.status(500).json({ error: 'DB error' });
+          }
+          res.json({
+            success: true,
+            number,
+            code,
+            last4,
+            expiry,
+            price: `${price} ${currency}`,
+          });
+        }
+      );
+    }
+  );
+}
+
+module.exports = router;
+
+
+
+
+
+
+NumberModals:
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
+
+function NumberModal({ country, service, language, onClose, selectedCrypto }) {
+  const { tg, user } = useTelegram();
+  const [numberData, setNumberData] = useState(null);
+  const [isPurchased, setIsPurchased] = useState(false);
+  const [currentCrypto, setCurrentCrypto] = useState(selectedCrypto || 'BTC');
+  const [balance, setBalance] = useState('0.00000000');
+  const [showCryptoDropdown, setShowCryptoDropdown] = useState(false);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  const cryptos = [
+    { id: 'BTC', name: 'Bitcoin' },
+    { id: 'LTC', name: 'Litecoin' },
+    { id: 'ETH', name: 'Ethereum' },
+    { id: 'USDT', name: 'Tether' },
+    { id: 'BNB', name: 'Binance Coin' },
+    { id: 'AVAX', name: 'Avalanche' },
+    { id: 'ADA', name: 'Cardano' },
+    { id: 'SOL', name: 'Solana' },
+  ];
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchBalance(currentCrypto);
+    }
+  }, [currentCrypto, user]);
+
+  const fetchBalance = async (crypto) => {
+    try {
+      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${crypto}`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      setBalance(res.data.balance || '0.00000000');
+    } catch (err) {
+      console.error('Balance fetch error:', err);
+      tg?.showPopup({ message: language === 'ru' ? `Ошибка получения баланса: ${err.message}` : `Balance fetch error: ${err.message}` });
+    }
+  };
+
+  const ensureUser = async () => {
+    try {
+      await axios.post(
+        `${API_URL}/select-crypto/${user.id}`,
+        { crypto: currentCrypto },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+    } catch (err) {
+      console.error('Ensure user error:', err);
+    }
+  };
+
+  const texts = {
+    ru: {
+      title: service === 'sms' ? `SMS код и ${country.name_ru}` : `Услуга и ${country.name_ru}`,
+      number: 'Номер:',
+      code: 'Код:',
+      last4: '4 последние цифры:',
+      price: 'Цена:',
+      balance: 'Баланс:',
+      copy: 'Копировать',
+      buy: 'Купить',
+      notPurchased: 'Не куплено',
+      success: 'Успешно! ✅',
+      insufficientFunds: 'Не хватает средств!',
+    },
+    en: {
+      title: service === 'sms' ? `SMS Code and ${country.name_en}` : `Service and ${country.name_en}`,
+      number: 'Number:',
+      code: 'Code:',
+      last4: 'Last 4 digits:',
+      price: 'Price:',
+      balance: 'Balance:',
+      copy: 'Copy',
+      buy: 'Buy',
+      notPurchased: 'Not purchased',
+      success: 'Success! ✅',
+      insufficientFunds: 'Insufficient funds!',
+    },
+  };
+
+  const copyToClipboard = (text) => {
+    if (text) {
+      navigator.clipboard.writeText(text);
+      tg?.showPopup({ message: language === 'ru' ? 'Скопировано!' : 'Copied!' });
+    }
+  };
+
+  // Конверсия евро/долларов в крипту (синхронизировано с бэкендом)
+  const convertPriceToCrypto = (euroPrice) => {
     const rates = {
       USDT: 1,
       BTC: 0.000015,
@@ -215,40 +391,199 @@ router.post('/buy-number', async (req, res) => {
       ADA: 2.2,
       SOL: 0.0067,
     };
-    const price = (priceInCrypto * (rates[currency] || 1)).toFixed(8);
-    if (balance < price) {
-      return res.json({ success: false, error: 'Недостаточно средств' });
+    return (euroPrice * (rates[currentCrypto] || 1)).toFixed(8);
+  };
+
+  const getPrice = () => {
+    let euroPrice;
+    switch (service) {
+      case 'sms':
+        euroPrice = 0.012;
+        break;
+      case 'call':
+        euroPrice = 0.020;
+        break;
+      case 'rent':
+        euroPrice = 5;
+        break;
+      default:
+        euroPrice = 0;
     }
-    const number = `+${Math.floor(10000000000 + Math.random() * 90000000000)}`;
-    const code = service === 'sms' ? `CODE-${Math.random().toString(36).slice(2, 8)}` : null;
-    const last4 = service === 'call' ? number.slice(-4) : null;
-    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    db.run(
-      'INSERT INTO purchases (telegram_id, country, resource, code) VALUES (?, ?, ?, ?)',
-      [telegram_id, country, service, code || number]
-    );
-    db.run(
-      'UPDATE users SET balance = balance - ? WHERE telegram_id = ?',
-      [price, telegram_id]
-    );
-    res.json({
-      success: true,
-      number,
-      code,
-      last4,
-      expiry,
-      price: `${price} ${currency}`,
-    });
-  });
-});
+    return `${convertPriceToCrypto(euroPrice)} ${currentCrypto}`;
+  };
 
-module.exports = router;
+  const getPriceValue = () => {
+    let euroPrice;
+    switch (service) {
+      case 'sms':
+        euroPrice = 0.012;
+        break;
+      case 'call':
+        euroPrice = 0.020;
+        break;
+      case 'rent':
+        euroPrice = 5;
+        break;
+      default:
+        euroPrice = 0;
+    }
+    return convertPriceToCrypto(euroPrice);
+  };
+
+  const handleBuy = async () => {
+    if (!user?.id) {
+      tg?.showPopup({ message: language === 'ru' ? 'Ошибка: Telegram ID не определён' : 'Error: Telegram ID not defined' });
+      return;
+    }
+    const balanceNum = parseFloat(balance);
+    const priceNum = parseFloat(getPriceValue());
+    if (balanceNum < priceNum) {
+      tg?.showPopup({ message: texts[language].insufficientFunds });
+      return;
+    }
+    try {
+      // Создать пользователя, если не существует
+      await ensureUser();
+      const res = await axios.post(
+        `${API_URL}/buy-number`,
+        { telegram_id: user.id, country: country.id, service, currency: currentCrypto },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      if (!res.data.success) {
+        tg?.showPopup({ message: language === 'ru' ? res.data.error || 'Ошибка покупки' : res.data.error || 'Purchase error' });
+        return;
+      }
+      setNumberData({ ...res.data, service });
+      setIsPurchased(true);
+      tg?.showPopup({ message: texts[language].success });
+    } catch (err) {
+      console.error('Buy number error:', err);
+      tg?.showPopup({ message: language === 'ru' ? `Ошибка покупки: ${err.message}` : `Purchase error: ${err.message}` });
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-xl font-bold mb-4 text-center">{texts[language].title}</h2>
+        <div className="space-y-4">
+          <div>
+            <p className="font-semibold">{texts[language].number}</p>
+            <div className="flex items-center">
+              <span className="flex-1 p-2 bg-blue-100 rounded">
+                {numberData?.number || texts[language].notPurchased}
+              </span>
+              {numberData?.number && (
+                <button
+                  className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+                  onClick={() => copyToClipboard(numberData.number)}
+                >
+                  {texts[language].copy}
+                </button>
+              )}
+            </div>
+          </div>
+          {service === 'sms' && (
+            <div>
+              <p className="font-semibold">{texts[language].code}</p>
+              <div className="flex items-center">
+                <span className="flex-1 p-2 bg-blue-100 rounded">
+                  {numberData?.code || texts[language].notPurchased}
+                </span>
+                {numberData?.code && (
+                  <button
+                    className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+                    onClick={() => copyToClipboard(numberData.code)}
+                  >
+                    {texts[language].copy}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {service === 'call' && (
+            <div>
+              <p className="font-semibold">{texts[language].last4}</p>
+              <div className="flex items-center">
+                <span className="flex-1 p-2 bg-blue-100 rounded">
+                  {numberData?.last4 || texts[language].notPurchased}
+                </span>
+                {numberData?.last4 && (
+                  <button
+                    className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
+                    onClick={() => copyToClipboard(numberData.last4)}
+                  >
+                    {texts[language].copy}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <div>
+              <p className="font-semibold">{texts[language].price}</p>
+              <p className="p-2 bg-blue-100 rounded">{getPrice()}</p>
+            </div>
+            <div className="relative">
+              <p
+                className="font-semibold cursor-pointer hover:text-blue-500"
+                onClick={() => setShowCryptoDropdown(!showCryptoDropdown)}
+              >
+                {texts[language].balance}
+              </p>
+              <p className="p-2 bg-blue-100 rounded">
+                {balance} {currentCrypto}
+              </p>
+              {showCryptoDropdown && (
+                <div className="absolute z-10 w-full bg-white border border-gray-300 rounded shadow-lg mt-1 max-h-48 overflow-y-auto">
+                  {cryptos.map((crypto) => (
+                    <button
+                      key={crypto.id}
+                      className="w-full text-left px-4 py-2 hover:bg-gray-100"
+                      onClick={() => {
+                        setCurrentCrypto(crypto.id);
+                        setShowCryptoDropdown(false);
+                      }}
+                    >
+                      {crypto.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        {!isPurchased && (
+          <button
+            className="w-full bg-blue-500 text-white p-2 rounded mt-4"
+            onClick={handleBuy}
+          >
+            {texts[language].buy}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default NumberModal;
 
 
 
 
 
-APP:
+App.js:
 import { useState, useEffect } from 'react';
 import { useTelegram } from './telegram';
 import CountryList from './components/CountryList';
@@ -433,9 +768,7 @@ export default App;
 
 
 
-
-
-SERVICESELECTOR:
+ServiceSelector:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import NumberModal from './NumberModal';
@@ -496,293 +829,6 @@ function ServiceSelector({ country, language, onBack, selectedCrypto }) {
 }
 
 export default ServiceSelector;
-
-
-
-
-
-
-
-
-NUMBERMODAL:
-import { useState, useEffect } from 'react';
-import { useTelegram } from '../telegram';
-import axios from 'axios';
-
-function NumberModal({ country, service, language, onClose, selectedCrypto }) {
-  const { tg, user } = useTelegram();
-  const [numberData, setNumberData] = useState(null);
-  const [isPurchased, setIsPurchased] = useState(false);
-  const [currentCrypto, setCurrentCrypto] = useState(selectedCrypto);
-  const [balance, setBalance] = useState('0.00000000');
-  const [showCryptoDropdown, setShowCryptoDropdown] = useState(false);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  const cryptos = [
-    { id: 'BTC', name: 'Bitcoin' },
-    { id: 'LTC', name: 'Litecoin' },
-    { id: 'ETH', name: 'Ethereum' },
-    { id: 'USDT', name: 'Tether' },
-    { id: 'BNB', name: 'Binance Coin' },
-    { id: 'AVAX', name: 'Avalanche' },
-    { id: 'ADA', name: 'Cardano' },
-    { id: 'SOL', name: 'Solana' },
-  ];
-
-  useEffect(() => {
-    if (user?.id) {
-      fetchBalance(currentCrypto);
-    }
-  }, [currentCrypto, user]);
-
-  const fetchBalance = async (crypto) => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${crypto}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setBalance(res.data.balance || '0.00000000');
-    } catch (err) {
-      console.error('Balance fetch error:', err);
-      tg?.showPopup({ message: language === 'ru' ? `Ошибка получения баланса: ${err.message}` : `Balance fetch error: ${err.message}` });
-    }
-  };
-
-  const texts = {
-    ru: {
-      title: service === 'sms' ? `SMS код и ${country.name_ru}` : `Услуга и ${country.name_ru}`,
-      number: 'Номер:',
-      code: 'Код:',
-      last4: '4 последние цифры:',
-      price: 'Цена:',
-      balance: 'Баланс:',
-      copy: 'Копировать',
-      buy: 'Купить',
-      notPurchased: 'Не куплено',
-      success: 'Успешно! ✅',
-      insufficientFunds: 'Не хватает средств!',
-    },
-    en: {
-      title: service === 'sms' ? `SMS Code and ${country.name_en}` : `Service and ${country.name_en}`,
-      number: 'Number:',
-      code: 'Code:',
-      last4: 'Last 4 digits:',
-      price: 'Price:',
-      balance: 'Balance:',
-      copy: 'Copy',
-      buy: 'Buy',
-      notPurchased: 'Not purchased',
-      success: 'Success! ✅',
-      insufficientFunds: 'Insufficient funds!',
-    },
-  };
-
-  const copyToClipboard = (text) => {
-    if (text) {
-      navigator.clipboard.writeText(text);
-      tg?.showPopup({ message: language === 'ru' ? 'Скопировано!' : 'Copied!' });
-    }
-  };
-
-  // Конверсия евро/долларов в крипту (синхронизировано с бэкендом)
-  const convertPriceToCrypto = (euroPrice) => {
-    const rates = {
-      USDT: 1,
-      BTC: 0.000015,
-      LTC: 0.012,
-      ETH: 0.00033,
-      BNB: 0.0017,
-      AVAX: 0.028,
-      ADA: 2.2,
-      SOL: 0.0067,
-    };
-    return (euroPrice * (rates[currentCrypto] || 1)).toFixed(8);
-  };
-
-  const getPrice = () => {
-    let euroPrice;
-    switch (service) {
-      case 'sms':
-        euroPrice = 0.012;
-        break;
-      case 'call':
-        euroPrice = 0.020;
-        break;
-      case 'rent':
-        euroPrice = 5;
-        break;
-      default:
-        euroPrice = 0;
-    }
-    return `${convertPriceToCrypto(euroPrice)} ${currentCrypto}`;
-  };
-
-  const getPriceValue = () => {
-    let euroPrice;
-    switch (service) {
-      case 'sms':
-        euroPrice = 0.012;
-        break;
-      case 'call':
-        euroPrice = 0.020;
-        break;
-      case 'rent':
-        euroPrice = 5;
-        break;
-      default:
-        euroPrice = 0;
-    }
-    return convertPriceToCrypto(euroPrice);
-  };
-
-  const handleBuy = async () => {
-    if (!user?.id) {
-      tg?.showPopup({ message: language === 'ru' ? 'Ошибка: Telegram ID не определён' : 'Error: Telegram ID not defined' });
-      return;
-    }
-    const balanceNum = parseFloat(balance);
-    const priceNum = parseFloat(getPriceValue());
-    if (balanceNum < priceNum) {
-      tg?.showPopup({ message: texts[language].insufficientFunds });
-      return;
-    }
-    try {
-      const res = await axios.post(
-        `${API_URL}/buy-number`,
-        { telegram_id: user.id, country: country.id, service, currency: currentCrypto },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      if (!res.data.success) {
-        tg?.showPopup({ message: language === 'ru' ? res.data.error || 'Ошибка покупки' : res.data.error || 'Purchase error' });
-        return;
-      }
-      setNumberData({ ...res.data, service });
-      setIsPurchased(true);
-      tg?.showPopup({ message: texts[language].success });
-    } catch (err) {
-      console.error('Buy number error:', err);
-      tg?.showPopup({ message: language === 'ru' ? `Ошибка покупки: ${err.message}` : `Purchase error: ${err.message}` });
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-xl font-bold mb-4 text-center">{texts[language].title}</h2>
-        <div className="space-y-4">
-          <div>
-            <p className="font-semibold">{texts[language].number}</p>
-            <div className="flex items-center">
-              <span className="flex-1 p-2 bg-blue-100 rounded">
-                {numberData?.number || texts[language].notPurchased}
-              </span>
-              {numberData?.number && (
-                <button
-                  className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
-                  onClick={() => copyToClipboard(numberData.number)}
-                >
-                  {texts[language].copy}
-                </button>
-              )}
-            </div>
-          </div>
-          {service === 'sms' && (
-            <div>
-              <p className="font-semibold">{texts[language].code}</p>
-              <div className="flex items-center">
-                <span className="flex-1 p-2 bg-blue-100 rounded">
-                  {numberData?.code || texts[language].notPurchased}
-                </span>
-                {numberData?.code && (
-                  <button
-                    className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
-                    onClick={() => copyToClipboard(numberData.code)}
-                  >
-                    {texts[language].copy}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          {service === 'call' && (
-            <div>
-              <p className="font-semibold">{texts[language].last4}</p>
-              <div className="flex items-center">
-                <span className="flex-1 p-2 bg-blue-100 rounded">
-                  {numberData?.last4 || texts[language].notPurchased}
-                </span>
-                {numberData?.last4 && (
-                  <button
-                    className="ml-2 bg-blue-500 text-white px-3 py-1 rounded"
-                    onClick={() => copyToClipboard(numberData.last4)}
-                  >
-                    {texts[language].copy}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          <div className="flex justify-between">
-            <div>
-              <p className="font-semibold">{texts[language].price}</p>
-              <p className="p-2 bg-blue-100 rounded">{getPrice()}</p>
-            </div>
-            <div className="relative">
-              <p
-                className="font-semibold cursor-pointer hover:text-blue-500"
-                onClick={() => setShowCryptoDropdown(!showCryptoDropdown)}
-              >
-                {texts[language].balance}
-              </p>
-              <p className="p-2 bg-blue-100 rounded">
-                {balance} {currentCrypto}
-              </p>
-              {showCryptoDropdown && (
-                <div className="absolute z-10 w-full bg-white border border-gray-300 rounded shadow-lg mt-1 max-h-48 overflow-y-auto">
-                  {cryptos.map((crypto) => (
-                    <button
-                      key={crypto.id}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-100"
-                      onClick={() => {
-                        setCurrentCrypto(crypto.id);
-                        setShowCryptoDropdown(false);
-                      }}
-                    >
-                      {crypto.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        {!isPurchased && (
-          <button
-            className="w-full bg-blue-500 text-white p-2 rounded mt-4"
-            onClick={handleBuy}
-          >
-            {texts[language].buy}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default NumberModal;
 
 
 
