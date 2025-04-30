@@ -47,6 +47,7 @@ function ServiceSelector({ country, language, onBack, selectedCrypto, setShowPur
       {showNumberModal && (
         <NumberModal
           country={country}
+          service={service}
           language={language}
           onBack={() => setShowNumberModal(false)}
           selectedCrypto={selectedCrypto}
@@ -66,15 +67,14 @@ export default ServiceSelector;
 
 
 
-NUMBMODAL
-import { useState, useEffect } from 'react';
+
+NUMBERMOD
+import { useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
-import ServiceSelector from './ServiceSelector';
 
-function NumberModal({ language, country, onBack, selectedCrypto, setShowPurchaseResult, setPurchaseData }) {
+function NumberModal({ language, country, service, onBack, selectedCrypto, setShowPurchaseResult, setPurchaseData }) {
   const { tg, user } = useTelegram();
-  const [service, setService] = useState('sms');
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
@@ -138,6 +138,15 @@ function NumberModal({ language, country, onBack, selectedCrypto, setShowPurchas
     },
   };
 
+  const getServiceName = () => {
+    const names = {
+      sms: { ru: 'СМС', en: 'SMS' },
+      call: { ru: 'Звонок', en: 'Call' },
+      rent: { ru: 'Аренда номера', en: 'Number Rental' },
+    };
+    return names[service] ? names[service][language] : service;
+  };
+
   const getPrice = () => {
     const priceInCrypto = {
       sms: 0.012,
@@ -166,9 +175,9 @@ function NumberModal({ language, country, onBack, selectedCrypto, setShowPurchas
           <p className="font-semibold">{texts[language].country}</p>
           <p>{language === 'ru' ? country.name_ru : country.name_en}</p>
         </div>
-        <div className="mb-2">
-          <p className="font-semibold mb-1">{texts[language].service}</p>
-          <ServiceSelector language={language} selectedService={service} setService={setService} />
+        <div className="flex justify-between mb-2">
+          <p className="font-semibold">{texts[language].service}</p>
+          <p>{getServiceName()}</p>
         </div>
         <div className="flex justify-between mb-4">
           <p className="font-semibold">{texts[language].price}</p>
@@ -186,6 +195,7 @@ function NumberModal({ language, country, onBack, selectedCrypto, setShowPurchas
 }
 
 export default NumberModal;
+
 
 
 
@@ -290,6 +300,10 @@ function CountryList({ language, onBack, selectedCrypto, setShowPurchaseResult, 
 }
 
 export default CountryList;
+
+
+
+
 
 
 
