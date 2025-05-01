@@ -1,248 +1,327 @@
+App
 import { useState, useEffect } from 'react';
-import { useTelegram } from '../telegram';
-import CryptoModal from './CryptoModal';
-import BalanceModal from './BalanceModal';
-import QRCode from 'qrcode.react';
+import { useTelegram } from './telegram';
+import CountryList from './components/CountryList';
+import Profile from './components/Profile';
+import PurchaseResult from './components/PurchaseResult';
+import PurchaseHistory from './components/PurchaseHistory';
+import NumberModal from './components/NumberModal';
 import axios from 'axios';
 
-function Profile({ username, selectedCrypto, setSelectedCrypto, balance, displayCurrency, onBack, language }) {
-  const { tg } = useTelegram();
-  const [showCryptoModal, setShowCryptoModal] = useState(false);
-  const [showBalanceModal, setShowBalanceModal] = useState(false);
-  const [address, setAddress] = useState('');
-  const [isCryptoLoading, setIsCryptoLoading] = useState(false); // Новое состояние для загрузки криптовалюты
+function App() {
+  const { tg, user } = useTelegram();
+  const [language, setLanguage] = useState('ru');
+  const [displayCurrency, setDisplayCurrency] = useState('RUB');
+  const [showCountryList, setShowCountryList] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [showPurchaseResult, setShowPurchaseResult] = useState(false);
+  const [showPurchaseHistory, setShowPurchaseHistory] = useState(false);
+  const [showNumberModal, setShowNumberModal] = useState(false);
+  const [purchaseData, setPurchaseData] = useState(null);
+  const [selectedCrypto, setSelectedCrypto] = useState('BTC'); // Убедимся, что значение по умолчанию всегда BTC
+  const [balance, setBalance] = useState('0.00000000');
+  const [displayBalance, setDisplayBalance] = useState('0.00');
+  const [refreshPurchases, setRefreshPurchases] = useState(false);
+  const [isNewUser, setIsNewUser] = useState(false);
+  const [lastSelectedResource, setLastSelectedResource] = useState('other');
+  const [selectedCountry, setSelectedCountry] = useState(null);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     if (tg) {
-      tg.BackButton.show().onClick(onBack);
+      tg.ready();
+      console.log('Telegram user:', user);
+      tg.BackButton.onClick(() => {
+        if (showProfile) setShowProfile(false);
+        else if (showCountryList) setShowCountryList(false);
+        else if (showNumberModal) setShowNumberModal(false);
+        else if (showPurchaseResult) {
+          setShowPurchaseResult(false);
+          setRefreshPurchases(true);
+        } else if (showPurchaseHistory) setShowPurchaseHistory(false);
+      });
+      if (showCountryList || showProfile || showPurchaseResult || showPurchaseHistory || showNumberModal) {
+        tg.BackButton.show();
+      } else {
+        tg.BackButton.hide();
+      }
+      if (user?.id) {
+        checkUser();
+      }
     }
-    return () => tg?.BackButton.hide();
-  }, [tg, onBack]);
+  }, [tg, showCountryList, showProfile, showPurchaseResult, showPurchaseHistory, showNumberModal, selectedCrypto, user]);
 
-  const handleGenerateAddress = async () => {
-    if (!tg?.initData || isCryptoLoading) return; // Блокируем, если криптовалюта загружается
+  const checkUser = async () => {
     try {
-      console.log('Generating address for crypto:', selectedCrypto); // Лог для отладки
+      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      console.log('Check user response:', res.data);
+      if (res.data.balance === '0.00000000' && !res.data.address) {
+        setIsNewUser(true);
+        setShowLanguageModal(true);
+      } else {
+        setLanguage(res.data.language || 'ru');
+        setDisplayCurrency(res.data.display_currency || 'RUB');
+        setBalance(res.data.balance || '0.00000000');
+        setDisplayBalance(res.data.display_balance || '0.00');
+        setLastSelectedResource(res.data.last_selected_resource || 'other');
+        setSelectedCrypto(res.data.crypto || 'BTC'); // Устанавливаем криптовалюту из ответа сервера
+      }
+    } catch (err) {
+      console.error('Check user error:', err);
+    }
+  };
+
+  const handleSelectLanguage = async (lang) => {
+    try {
       const res = await axios.post(
-        `${API_URL}/generate-address/${tg.initDataUnsafe.user.id}`,
-        { crypto: selectedCrypto },
+        `${API_URL}/set-language/${user.id}`,
+        { language: lang },
         {
           headers: {
-            'telegram-init-data': tg.initData,
+            'telegram-init-data': tg?.initData || '',
             'ngrok-skip-browser-warning': 'true',
           },
         }
       );
-      console.log('Generate address response:', res.data); // Лог для отладки
-      setAddress(res.data.address);
-      setShowBalanceModal(true);
+      setLanguage(lang);
+      setDisplayCurrency(res.data.display_currency);
+      setShowLanguageModal(false);
+      setIsNewUser(false);
     } catch (err) {
-      console.error('Generate address error:', err);
-      tg.showPopup({
-        message: language === 'ru' ? 'Ошибка генерации адреса' : 'Error generating address',
+      console.error('Set language error:', err);
+    }
+  };
+
+  const fetchBalance = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
       });
+      setBalance(res.data.balance || '0.00000000');
+      setDisplayBalance(res.data.display_balance || '0.00');
+      setLastSelectedResource(res.data.last_selected_resource || 'other');
+    } catch (err) {
+      console.error('Fetch balance error:', err);
     }
   };
 
   const handleSelectCrypto = async (crypto) => {
-    if (crypto === selectedCrypto) {
-      setShowCryptoModal(false);
-      return;
-    }
-    setIsCryptoLoading(true); // Устанавливаем загрузку
+    if (!user?.id) return;
     try {
-      console.log('Selecting crypto:', crypto); // Лог для отладки
+      console.log('App selecting crypto:', crypto); // Лог для отладки
       await axios.post(
-        `${API_URL}/select-crypto/${tg.initDataUnsafe.user.id}`,
+        `${API_URL}/select-crypto/${user.id}`,
         { crypto },
         {
           headers: {
-            'telegram-init-data': tg.initData,
+            'telegram-init-data': tg?.initData || '',
             'ngrok-skip-browser-warning': 'true',
           },
         }
       );
       setSelectedCrypto(crypto);
-      setShowCryptoModal(false);
+      fetchBalance();
     } catch (err) {
       console.error('Select crypto error:', err);
-      tg.showPopup({
-        message: language === 'ru' ? 'Ошибка выбора валюты' : 'Error selecting currency',
-      });
-    } finally {
-      setIsCryptoLoading(false); // Снимаем загрузку
     }
   };
 
+  const handleViewPurchase = (purchase) => {
+    console.log('Viewing purchase:', purchase);
+    setPurchaseData({
+      ...purchase,
+      purchase_id: purchase.id,
+      country: purchase.country,
+      service: purchase.service_type,
+      resource: purchase.service,
+      number: purchase.number,
+      price: purchase.display_price || purchase.price,
+      code: purchase.code,
+      expiry: purchase.expiry || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+    setShowPurchaseResult(true);
+    setShowPurchaseHistory(false);
+  };
+
+  const handleGoToPurchases = () => {
+    setShowPurchaseResult(false);
+    setShowPurchaseHistory(true);
+    setRefreshPurchases(true);
+  };
+
+  const handleBuyNumber = (country) => {
+    setSelectedCountry(country);
+    setShowNumberModal(true);
+  };
+
   const texts = {
     ru: {
-      profile: 'Профиль',
-      balance: 'Баланс',
-      topUp: 'Пополнить',
-      crypto: 'Валюта',
-      copied: 'Адрес скопирован',
+      title: 'Виртуальные сим-карты',
+      subtitle: 'Более 70 стран от 0.01 €',
+      buy: 'Купить',
+      purchases: 'Мои покупки',
+      selectLanguage: 'Выберите язык',
     },
     en: {
-      profile: 'Profile',
-      balance: 'Balance',
-      topUp: 'Top Up',
-      crypto: 'Currency',
-      copied: 'Address copied',
+      title: 'Virtual SIM Cards',
+      subtitle: 'Over 70 countries from 0.01 €',
+      buy: 'Buy',
+      purchases: 'My Purchases',
+      selectLanguage: 'Select Language',
     },
   };
+
+  if (showPurchaseResult) {
+    return (
+      <PurchaseResult
+        language={language}
+        purchaseData={purchaseData}
+        onBack={() => {
+          setShowPurchaseResult(false);
+          setRefreshPurchases(true);
+        }}
+        balance={displayBalance}
+        selectedCrypto={selectedCrypto}
+        displayCurrency={displayCurrency}
+        onGoToPurchases={handleGoToPurchases}
+      />
+    );
+  }
+
+  if (showPurchaseHistory) {
+    return (
+      <PurchaseHistory
+        language={language}
+        onBack={() => setShowPurchaseHistory(false)}
+        refresh={refreshPurchases}
+        setRefresh={setRefreshPurchases}
+        onViewPurchase={handleViewPurchase}
+      />
+    );
+  }
+
+  if (showProfile) {
+    return (
+      <Profile
+        username={user?.first_name || 'User'}
+        selectedCrypto={selectedCrypto}
+        setSelectedCrypto={handleSelectCrypto}
+        balance={displayBalance}
+        displayCurrency={displayCurrency}
+        onBack={() => setShowProfile(false)}
+        language={language}
+      />
+    );
+  }
+
+  if (showNumberModal) {
+    return (
+      <NumberModal
+        language={language}
+        country={selectedCountry}
+        selectedCrypto={selectedCrypto}
+        displayCurrency={displayCurrency}
+        onClose={() => setShowNumberModal(false)}
+        setShowPurchaseResult={setShowPurchaseResult}
+        setPurchaseData={setPurchaseData}
+        lastSelectedResource={lastSelectedResource}
+        setShowProfile={setShowProfile}
+      />
+    );
+  }
+
+  if (showCountryList) {
+    return (
+      <CountryList
+        language={language}
+        onBack={() => setShowCountryList(false)}
+        selectedCrypto={selectedCrypto}
+        displayCurrency={displayCurrency}
+        setShowPurchaseResult={setShowPurchaseResult}
+        setPurchaseData={setPurchaseData}
+        lastSelectedResource={lastSelectedResource}
+        onSelectCountry={handleBuyNumber}
+      />
+    );
+  }
 
   return (
     <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4">{texts[language].profile}</h1>
-      <p className="text-lg mb-4">{username}</p>
-      <div className="mb-4">
-        <p className="text-sm text-gray-600">{texts[language].balance}</p>
-        <p className="text-lg font-semibold">
-          {balance} {displayCurrency}
-        </p>
-      </div>
-      <div className="mb-4">
-        <p className="text-sm text-gray-600">{texts[language].crypto}</p>
+      <div className="flex justify-between mb-4">
+        <button
+          className="bg-gray-200 px-3 py-1 rounded"
+          onClick={() => setShowLanguageModal(true)}
+        >
+          {language.toUpperCase()}
+        </button>
         <button
           className="text-lg font-semibold text-blue-500"
-          onClick={() => setShowCryptoModal(true)}
-          disabled={isCryptoLoading} // Блокируем кнопку во время загрузки
+          onClick={() => setShowProfile(true)}
         >
-          {selectedCrypto} {isCryptoLoading && <span className="spinner ml-2"></span>}
+          {user?.first_name || 'User'}
         </button>
       </div>
-      <button
-        className={`w-full bg-blue-500 text-white px-4 py-2 rounded mb-4 ${isCryptoLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-        onClick={handleGenerateAddress}
-        disabled={isCryptoLoading} // Блокируем кнопку во время загрузки
-      >
-        {texts[language].topUp}
-      </button>
-      {showCryptoModal && (
-        <CryptoModal
-          language={language}
-          onClose={() => setShowCryptoModal(false)}
-          onSelect={handleSelectCrypto}
-          selectedCrypto={selectedCrypto}
-          isLoading={isCryptoLoading} // Передаем состояние загрузки
-        />
-      )}
-      {showBalanceModal && (
-        <BalanceModal
-          language={language}
-          address={address}
-          crypto={selectedCrypto}
-          onClose={() => setShowBalanceModal(false)}
-          onCopy={() => tg.showPopup({ message: texts[language].copied })}
-        />
-      )}
-      <style>
-        {`
-          .spinner {
-            display: inline-block;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #3498db;
-            border-radius: 50%;
-            width: 16px;
-            height: 16px;
-            animation: spin 1s linear infinite;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}
-      </style>
-    </div>
-  );
-}
-
-export default Profile;
-
-
-
-
-
-
-
-
-
-
-import { useState } from 'react';
-
-function CryptoModal({ language, onClose, onSelect, selectedCrypto, isLoading }) {
-  const cryptos = ['BTC', 'USDT', 'LTC', 'ETH', 'BNB', 'AVAX', 'ADA', 'SOL'];
-
-  const texts = {
-    ru: {
-      title: 'Выберите валюту',
-      close: 'Закрыть',
-    },
-    en: {
-      title: 'Select Currency',
-      close: 'Close',
-    },
-  };
-
-  const handleCryptoSelect = (crypto) => {
-    if (isLoading) return; // Блокируем выбор, если идет загрузка
-    console.log('CryptoModal selecting:', crypto); // Лог для отладки
-    onSelect(crypto);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="bg-white p-4 rounded-lg max-w-sm w-full">
-        <h2 className="text-xl font-bold mb-4">{texts[language].title}</h2>
-        <div className="space-y-2">
-          {cryptos.map((crypto) => (
-            <button
-              key={crypto}
-              className={`w-full p-2 text-left rounded ${
-                selectedCrypto === crypto ? 'bg-blue-100' : 'bg-gray-100'
-              } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'}`}
-              onClick={() => handleCryptoSelect(crypto)}
-              disabled={isLoading} // Блокируем кнопки во время загрузки
-            >
-              {crypto} {isLoading && selectedCrypto === crypto && <span className="spinner ml-2"></span>}
-            </button>
-          ))}
-        </div>
+      <h1 className="text-2xl font-bold text-center mb-2">
+        {texts[language].title}
+      </h1>
+      <p className="text-center text-gray-600 mb-6">
+        {texts[language].subtitle}
+      </p>
+      <div className="flex flex-col gap-4">
         <button
-          className="mt-4 w-full bg-gray-500 text-white px-4 py-2 rounded"
-          onClick={onClose}
-          disabled={isLoading} // Блокируем кнопку закрытия во время загрузки
+          className="bg-blue-500 text-white px-4 py-2 rounded"
+          onClick={() => setShowCountryList(true)}
         >
-          {texts[language].close}
+          {texts[language].buy}
         </button>
-        <style>
-          {`
-            .spinner {
-              display: inline-block;
-              border: 2px solid #f3f3f3;
-              border-top: 2px solid #3498db;
-              border-radius: 50%;
-              width: 16px;
-              height: 16px;
-              animation: spin 1s linear infinite;
-            }
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-          `}
-        </style>
+        <button
+          className="bg-gray-500 text-white px-4 py-2 rounded"
+          onClick={() => setShowPurchaseHistory(true)}
+        >
+          {texts[language].purchases}
+        </button>
       </div>
+      {showLanguageModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+          onClick={() => !isNewUser && setShowLanguageModal(false)}
+        >
+          <div
+            className="bg-white p-4 rounded-lg max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">
+              {texts[language].selectLanguage}
+            </h2>
+            <button
+              className="w-full mb-2 bg-gray-200 p-2 rounded"
+              onClick={() => handleSelectLanguage('ru')}
+            >
+              Русский (RUB)
+            </button>
+            <button
+              className="w-full mb-2 bg-gray-200 p-2 rounded"
+              onClick={() => handleSelectLanguage('en')}
+            >
+              English (USD)
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default CryptoModal;
-
-
-
-
+export default App;
 
 
 
@@ -361,6 +440,8 @@ let ratesCache = {
   },
 };
 
+const SUPPORTED_CRYPTOS = ['BTC', 'USDT', 'LTC', 'ETH', 'BNB', 'AVAX', 'ADA', 'SOL'];
+
 const fetchCryptoRates = async () => {
   const now = Date.now();
   if (now - ratesCache.timestamp < 3600000) {
@@ -398,7 +479,7 @@ router.get('/resources', async (req, res) => {
   const language = req.query.language || 'ru';
   try {
     const rates = await fetchCryptoRates();
-    console.log('Returning rates for /resources:', rates); // Лог для отладки
+    console.log('Returning rates for /resources:', rates);
     res.json({
       services: resources.map((resource) => ({
         id: resource.id,
@@ -416,18 +497,21 @@ router.post('/generate-address/:telegram_id', async (req, res) => {
   const { telegram_id } = req.params;
   const { crypto } = req.body;
   try {
+    console.log('Generate address request:', { telegram_id, crypto }); // Лог для отладки
+    if (!crypto || !SUPPORTED_CRYPTOS.includes(crypto)) {
+      console.warn('Invalid crypto:', crypto);
+      return res.status(400).json({ error: `Invalid cryptocurrency: ${crypto || 'undefined'}` });
+    }
     let user = await User.findOne({ telegram_id });
     let addresses = user?.addresses || {};
-    console.log('Generate address request:', { telegram_id, crypto, currentCrypto: user?.crypto }); // Лог для отладки
-    // Генерируем новый адрес, если запрашиваемая криптовалюта отличается от текущей
     if (!user || user.crypto !== crypto || !addresses[crypto]) {
       const address = await generateAddress(telegram_id, crypto);
       addresses[crypto] = address;
       if (user) {
         user.addresses = addresses;
-        user.crypto = crypto; // Обновляем текущую криптовалюту
+        user.crypto = crypto;
         await user.save();
-        console.log('New address generated:', { address, crypto }); // Лог для отладки
+        console.log('New address generated:', { address, crypto });
         res.json({ address });
       } else {
         const index = Math.floor(Math.random() * 1000000);
@@ -437,16 +521,16 @@ router.post('/generate-address/:telegram_id', async (req, res) => {
           address,
           addresses: { [crypto]: address },
           balance: 1.0,
-          crypto: crypto || 'BTC',
+          crypto,
           language: 'ru',
           display_currency: 'RUB',
           last_selected_resource: 'other',
         });
-        console.log('New user created with address:', { address, crypto }); // Лог для отладки
+        console.log('New user created with address:', { address, crypto });
         res.json({ address });
       }
     } else {
-      console.log('Returning cached address:', { address: addresses[crypto], crypto }); // Лог для отладки
+      console.log('Returning cached address:', { address: addresses[crypto], crypto });
       res.json({ address: addresses[crypto] });
     }
   } catch (err) {
@@ -522,6 +606,10 @@ router.post('/select-crypto/:telegram_id', async (req, res) => {
   const { telegram_id } = req.params;
   const { crypto } = req.body;
   try {
+    if (!crypto || !SUPPORTED_CRYPTOS.includes(crypto)) {
+      console.warn('Invalid crypto in select-crypto:', crypto);
+      return res.status(400).json({ error: `Invalid cryptocurrency: ${crypto || 'undefined'}` });
+    }
     let user = await User.findOne({ telegram_id });
     if (!user) {
       const index = Math.floor(Math.random() * 1000000);
@@ -540,7 +628,7 @@ router.post('/select-crypto/:telegram_id', async (req, res) => {
       user.crypto = crypto;
       await user.save();
     }
-    console.log('Crypto selected:', { telegram_id, crypto }); // Лог для отладки
+    console.log('Crypto selected:', { telegram_id, crypto });
     res.json({ success: true, crypto });
   } catch (err) {
     console.error('Select crypto error:', err);
@@ -648,7 +736,7 @@ router.post('/complete-purchase/:purchase_id', async (req, res) => {
   try {
     const purchase = await Purchase.findById(purchase_id);
     if (!purchase) {
-      return res.status(404).json({ error: 'Purchase not found' });
+      return res.status(400).json({ error: 'Purchase not found' });
     }
     if (purchase.status === 'completed') {
       return res.json({ success: false, error: 'Purchase already completed' });
@@ -731,6 +819,8 @@ async function processPurchase(user, telegram_id, country, service, currency, re
 }
 
 module.exports = router;
+
+
 
 
 
