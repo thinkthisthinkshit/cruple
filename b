@@ -1,4 +1,3 @@
-NumberModal.js:
 import { useState, useEffect } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
@@ -10,7 +9,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
   const [selectedService, setSelectedService] = useState(null);
   const [step, setStep] = useState('select_service');
   const [error, setError] = useState('');
-  const [cryptoRates, setCryptoRates] = useState({});
+  const [cryptoRates, setCryptoRates] = useState(null);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
@@ -24,9 +23,27 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
         });
         setServices(servicesRes.data);
 
-        // Fetch crypto rates
-        const ratesRes = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether,litecoin,ethereum,binancecoin,avalanche-2,cardano,solana&vs_currencies=usd,rub');
-        setCryptoRates(ratesRes.data);
+        // Fetch crypto rates with cache
+        const cacheKey = 'crypto_rates';
+        const cacheTimestampKey = 'crypto_rates_timestamp';
+        const cacheDuration = 3600000; // 1 hour
+        const cachedRates = localStorage.getItem(cacheKey);
+        const cachedTimestamp = localStorage.getItem(cacheTimestampKey);
+        const now = Date.now();
+
+        let ratesData;
+        if (cachedRates && cachedTimestamp && now - parseInt(cachedTimestamp) < cacheDuration) {
+          ratesData = JSON.parse(cachedRates);
+        } else {
+          const ratesRes = await axios.get(
+            'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether,litecoin,ethereum,binancecoin,avalanche-2,cardano,solana&vs_currencies=usd,rub'
+          );
+          ratesData = ratesRes.data;
+          localStorage.setItem(cacheKey, JSON.stringify(ratesData));
+          localStorage.setItem(cacheTimestampKey, now.toString());
+        }
+
+        setCryptoRates(ratesData);
 
         // Set last selected service
         if (lastSelectedResource) {
@@ -35,7 +52,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
         }
       } catch (err) {
         console.error('Fetch services or rates error:', err);
-        setError(language === 'ru' ? 'Ошибка загрузки сервисов' : 'Error loading services');
+        setError(language === 'ru' ? 'Ошибка загрузки данных' : 'Error loading data');
       }
     };
     fetchServicesAndRates();
@@ -114,9 +131,9 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
     };
 
     const cryptoPrice = (priceInCrypto * (rates[selectedCrypto] || 1)).toFixed(8);
-    const fiatRate = cryptoRates[selectedCrypto.toLowerCase()]?.[displayCurrency.toLowerCase()] || 1;
+    const fiatRate = cryptoRates?.[selectedCrypto.toLowerCase()]?.[displayCurrency.toLowerCase()] || 1;
     const displayPrice = (parseFloat(cryptoPrice) * fiatRate).toFixed(2);
-    return `${displayPrice} ${displayCurrency}`;
+    return isNaN(displayPrice) ? `0.00 ${displayCurrency}` : `${displayPrice} ${displayCurrency}`;
   };
 
   const texts = {
