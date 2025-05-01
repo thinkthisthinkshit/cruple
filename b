@@ -1,6 +1,62 @@
-import { useState, useEffect } from 'react';
+Insufficient:
+import { useNavigate } from 'react-router-dom';
+
+function InsufficientFundsModal({ language, data, onClose }) {
+  const navigate = useNavigate();
+
+  const texts = {
+    ru: {
+      title: 'Недостаточно средств',
+      balance: 'Ваш баланс',
+      price: 'Стоимость услуги',
+      topUp: 'Пополнить',
+    },
+    en: {
+      title: 'Insufficient Funds',
+      balance: 'Your Balance',
+      price: 'Service Cost',
+      topUp: 'Top Up',
+    },
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-lg max-w-sm w-full">
+        <h2 className="text-xl font-bold mb-4">{texts[language].title}</h2>
+        <p className="mb-2">
+          <span className="font-semibold">{texts[language].balance}:</span> {data.balance}
+        </p>
+        <p className="mb-4">
+          <span className="font-semibold">{texts[language].price} ({data.serviceType}):</span> {data.price}
+        </p>
+        <button
+          className="w-full bg-blue-500 text-white px-4 py-2 rounded"
+          onClick={() => {
+            onClose();
+            navigate('/profile');
+          }}
+        >
+          {texts[language].topUp}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default InsufficientFundsModal;
+
+
+
+
+
+
+
+NumberModal.js:
+import { useState, useEffect, useMemo } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
+import debounce from 'lodash.debounce';
+import InsufficientFundsModal from './InsufficientFundsModal';
 
 function NumberModal({ language, country, selectedCrypto, displayCurrency, onClose, setShowPurchaseResult, setPurchaseData, lastSelectedResource }) {
   const { tg, user } = useTelegram();
@@ -11,63 +67,23 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
   const [error, setError] = useState('');
   const [cryptoRates, setCryptoRates] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showInsufficientFunds, setShowInsufficientFunds] = useState(false);
+  const [insufficientFundsData, setInsufficientFundsData] = useState(null);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  // Резервные курсы на случай сбоя API
-  const fallbackRates = {
-    btc: { usd: 60000, rub: 6000000 },
-    usdt: { usd: 1, rub: 100 },
-    ltc: { usd: 80, rub: 8000 },
-    eth: { usd: 3000, rub: 300000 },
-    bnb: { usd: 600, rub: 60000 },
-    avax: { usd: 35, rub: 3500 },
-    ada: { usd: 0.5, rub: 50 },
-    sol: { usd: 150, rub: 15000 },
-  };
 
   useEffect(() => {
     const fetchServicesAndRates = async () => {
       try {
         setIsLoading(true);
-
-        // Fetch services
-        const servicesRes = await axios.get(`${API_URL}/resources?language=${language}`, {
+        const res = await axios.get(`${API_URL}/resources?language=${language}`, {
           headers: {
             'ngrok-skip-browser-warning': 'true',
           },
         });
-        setServices(servicesRes.data);
-
-        // Fetch crypto rates with cache
-        const cacheKey = 'crypto_rates';
-        const cacheTimestampKey = 'crypto_rates_timestamp';
-        const cacheDuration = 3600000; // 1 hour
-        const cachedRates = localStorage.getItem(cacheKey);
-        const cachedTimestamp = localStorage.getItem(cacheTimestampKey);
-        const now = Date.now();
-
-        let ratesData;
-        if (cachedRates && cachedTimestamp && now - parseInt(cachedTimestamp) < cacheDuration) {
-          ratesData = JSON.parse(cachedRates);
-        } else {
-          try {
-            const ratesRes = await axios.get(
-              'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether,litecoin,ethereum,binancecoin,avalanche-2,cardano,solana&vs_currencies=usd,rub'
-            );
-            ratesData = ratesRes.data;
-            localStorage.setItem(cacheKey, JSON.stringify(ratesData));
-            localStorage.setItem(cacheTimestampKey, now.toString());
-          } catch (err) {
-            console.warn('CoinGecko API failed, using fallback rates:', err);
-            ratesData = fallbackRates;
-          }
-        }
-
-        setCryptoRates(ratesData);
-
-        // Set last selected service
+        setServices(res.data.services);
+        setCryptoRates(res.data.rates);
         if (lastSelectedResource) {
-          const lastService = servicesRes.data.find((s) => s.id === lastSelectedResource);
+          const lastService = res.data.services.find((s) => s.id === lastSelectedResource);
           if (lastService) setSelectedService(lastService);
         }
       } catch (err) {
@@ -80,17 +96,56 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
     fetchServicesAndRates();
   }, [API_URL, language, lastSelectedResource]);
 
-  const filteredServices = services.filter((service) =>
-    service.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const debouncedSearch = debounce((value) => {
+    setSearch(value);
+  }, 300);
+
+  const filteredServices = useMemo(() => {
+    return services.filter((service) =>
+      service.name.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [services, search]);
 
   const handleServiceSelect = (service) => {
     setSelectedService(service);
     setStep('select_type');
   };
 
-  const handleBuy = async (serviceType) => {
+  const checkBalanceAndBuy = async (serviceType) => {
     if (!user?.id || !selectedService) return;
+    try {
+      // Fetch balance
+      const balanceRes = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      const { balance, display_balance } = balanceRes.data;
+
+      // Calculate price
+      const priceData = getPriceData(serviceType);
+      const cryptoPrice = parseFloat(priceData.cryptoPrice);
+      const displayPrice = priceData.displayPrice;
+
+      if (parseFloat(balance) < cryptoPrice) {
+        setInsufficientFundsData({
+          balance: display_balance,
+          price: `${displayPrice} ${displayCurrency}`,
+          serviceType: texts[language][serviceType],
+        });
+        setShowInsufficientFunds(true);
+        return;
+      }
+
+      // Proceed with purchase
+      await handleBuy(serviceType);
+    } catch (err) {
+      console.error('Check balance error:', err);
+      setError(language === 'ru' ? 'Ошибка проверки баланса' : 'Error checking balance');
+    }
+  };
+
+  const handleBuy = async (serviceType) => {
     try {
       const res = await axios.post(
         `${API_URL}/buy-number`,
@@ -134,7 +189,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
     }
   };
 
-  const getPriceDisplay = (serviceType) => {
+  const getPriceData = (serviceType) => {
     const priceInCrypto = {
       sms: 0.012,
       call: 0.020,
@@ -153,10 +208,12 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
     };
 
     const cryptoPrice = (priceInCrypto * (rates[selectedCrypto] || 1)).toFixed(8);
-    const fiatRate = cryptoRates?.[selectedCrypto.toLowerCase()]?.[displayCurrency.toLowerCase()] || 
-                    fallbackRates[selectedCrypto.toLowerCase()]?.[displayCurrency.toLowerCase()] || 1;
+    const fiatRate = cryptoRates?.[selectedCrypto.toLowerCase()]?.[displayCurrency.toLowerCase()] || 1;
     const displayPrice = (parseFloat(cryptoPrice) * fiatRate).toFixed(2);
-    return isNaN(displayPrice) ? `0.00 ${displayCurrency}` : `${displayPrice} ${displayCurrency}`;
+    return {
+      cryptoPrice,
+      displayPrice: isNaN(displayPrice) ? `0.00` : displayPrice,
+    };
   };
 
   const texts = {
@@ -196,8 +253,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
               type="text"
               className="w-full p-2 mb-4 border rounded"
               placeholder={texts[language].search}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => debouncedSearch(e.target.value)}
             />
             {isLoading ? (
               <div className="flex items-center justify-center">
@@ -216,13 +272,13 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
                   >
                     <p className="font-semibold">{service.name}</p>
                     <p className="text-sm text-gray-600">
-                      {texts[language].sms}: {getPriceDisplay('sms')}
+                      {texts[language].sms}: {getPriceData('sms').displayPrice} {displayCurrency}
                     </p>
                     <p className="text-sm text-gray-600">
-                      {texts[language].call}: {getPriceDisplay('call')}
+                      {texts[language].call}: {getPriceData('call').displayPrice} {displayCurrency}
                     </p>
                     <p className="text-sm text-gray-600">
-                      {texts[language].rent}: {getPriceDisplay('rent')}
+                      {texts[language].rent}: {getPriceData('rent').displayPrice} {displayCurrency}
                     </p>
                   </div>
                 ))}
@@ -251,21 +307,21 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
               <>
                 <button
                   className="w-full bg-blue-500 text-white px-4 py-2 rounded mb-2"
-                  onClick={() => handleBuy('sms')}
+                  onClick={() => checkBalanceAndBuy('sms')}
                 >
-                  {texts[language].sms} ({getPriceDisplay('sms')})
+                  {texts[language].sms} ({getPriceData('sms').displayPrice} {displayCurrency})
                 </button>
                 <button
                   className="w-full bg-blue-500 text-white px-4 py-2 rounded mb-2"
-                  onClick={() => handleBuy('call')}
+                  onClick={() => checkBalanceAndBuy('call')}
                 >
-                  {texts[language].call} ({getPriceDisplay('call')})
+                  {texts[language].call} ({getPriceData('call').displayPrice} {displayCurrency})
                 </button>
                 <button
                   className="w-full bg-blue-500 text-white px-4 py-2 rounded mb-2"
-                  onClick={() => handleBuy('rent')}
+                  onClick={() => checkBalanceAndBuy('rent')}
                 >
-                  {texts[language].rent} ({getPriceDisplay('rent')})
+                  {texts[language].rent} ({getPriceData('rent').displayPrice} {displayCurrency})
                 </button>
               </>
             )}
@@ -287,6 +343,13 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
               </div>
             )}
           </>
+        )}
+        {showInsufficientFunds && (
+          <InsufficientFundsModal
+            language={language}
+            data={insufficientFundsData}
+            onClose={() => setShowInsufficientFunds(false)}
+          />
         )}
         <style>
           {`
@@ -310,3 +373,321 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
 }
 
 export default NumberModal;
+
+
+
+
+
+
+
+
+
+BalanceModal.js:
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
+import QRCode from 'qrcode.react';
+
+function BalanceModal({ language, selectedCrypto, displayCurrency, onClose }) {
+  const { tg, user } = useTelegram();
+  const [address, setAddress] = useState('');
+  const [balance, setBalance] = useState(null);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    const fetchAddressAndBalance = async () => {
+      try {
+        // Fetch or generate address
+        const addressRes = await axios.post(
+          `${API_URL}/generate-address/${user.id}`,
+          { crypto: selectedCrypto },
+          {
+            headers: {
+              'ngrok-skip-browser-warning': 'true',
+            },
+          }
+        );
+        setAddress(addressRes.data.address);
+
+        // Fetch balance
+        const balanceRes = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
+          headers: {
+            'ngrok-skip-browser-warning': 'true',
+          },
+        });
+        setBalance(balanceRes.data);
+      } catch (err) {
+        console.error('Fetch address or balance error:', err);
+      }
+    };
+    if (user?.id) {
+      fetchAddressAndBalance();
+    }
+  }, [user, selectedCrypto]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      tg?.showPopup({
+        message: language === 'ru' ? 'Адрес скопирован' : 'Address copied',
+      });
+    } catch (err) {
+      console.error('Copy address error:', err);
+    }
+  };
+
+  const texts = {
+    ru: {
+      title: 'Пополнить баланс',
+      address: 'Адрес кошелька',
+      balance: 'Текущий баланс',
+      copy: 'Скопировать',
+      close: 'Закрыть',
+    },
+    en: {
+      title: 'Top Up Balance',
+      address: 'Wallet Address',
+      balance: 'Current Balance',
+      copy: 'Copy',
+      close: 'Close',
+    },
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-sm w-full">
+        <h2 className="text-lg font-bold mb-4">{texts[language].title}</h2>
+        {balance && (
+          <p className="mb-4">
+            <span className="font-semibold">{texts[language].balance}:</span>{' '}
+            {balance.display_balance} {displayCurrency}
+          </p>
+        )}
+        {address && (
+          <>
+            <p className="text-sm font-semibold mb-2">{texts[language].address}:</p>
+            <p className="text-sm text-center mb-4 break-all">{address}</p>
+            <QRCode value={`${selectedCrypto.toLowerCase()}:${address}`} className="mx-auto mb-4" />
+          </>
+        )}
+        <div className="flex justify-between">
+          <button
+            className="bg-blue-500 text-white px-4 py-2 rounded"
+            onClick={handleCopy}
+          >
+            {texts[language].copy}
+          </button>
+          <button
+            className="bg-gray-500 text-white px-4 py-2 rounded"
+            onClick={onClose}
+          >
+            {texts[language].close}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default BalanceModal;
+
+
+
+
+
+
+
+
+
+
+Profile.js:
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import axios from 'axios';
+import BalanceModal from './BalanceModal';
+
+function Profile({ language, selectedCrypto, displayCurrency }) {
+  const { tg, user } = useTelegram();
+  const [balance, setBalance] = useState(null);
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    const fetchBalance = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
+          headers: {
+            'ngrok-skip-browser-warning': 'true',
+          },
+        });
+        setBalance(res.data);
+      } catch (err) {
+        console.error('Fetch balance error:', err);
+      }
+    };
+    if (user?.id) {
+      fetchBalance();
+    }
+  }, [user, selectedCrypto]);
+
+  const texts = {
+    ru: {
+      title: 'Профиль',
+      balance: 'Баланс',
+      crypto: 'Криптовалюта',
+      currency: 'Валюта отображения',
+      language: 'Язык',
+    },
+    en: {
+      title: 'Profile',
+      balance: 'Balance',
+      crypto: 'Cryptocurrency',
+      currency: 'Display Currency',
+      language: 'Language',
+    },
+  };
+
+  return (
+    <div className="p-4">
+      <h1 className="text-2xl font-bold mb-4">{texts[language].title}</h1>
+      {balance && (
+        <div className="mb-4">
+          <p>
+            <span className="font-semibold">{texts[language].balance}:</span>{' '}
+            {balance.display_balance} {displayCurrency}
+          </p>
+          <p>
+            <span className="font-semibold">{texts[language].crypto}:</span>{' '}
+            {selectedCrypto}
+          </p>
+          <p>
+            <span className="font-semibold">{texts[language].currency}:</span>{' '}
+            {displayCurrency}
+          </p>
+          <p>
+            <span className="font-semibold">{texts[language].language}:</span>{' '}
+            {language === 'ru' ? 'Русский' : 'English'}
+          </p>
+        </div>
+      )}
+      <button
+        className="w-full bg-blue-500 text-white px-4 py-2 rounded"
+        onClick={() => setShowBalanceModal(true)}
+      >
+        {texts[language].balance}
+      </button>
+      {showBalanceModal && (
+        <BalanceModal
+          language={language}
+          selectedCrypto={selectedCrypto}
+          displayCurrency={displayCurrency}
+          onClose={() => setShowBalanceModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+export default Profile;
+
+
+
+
+
+
+
+
+App.jsx:
+import { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
+import { useTelegram } from './telegram';
+import NumberModal from './components/NumberModal';
+import PurchaseHistory from './components/PurchaseHistory';
+import Profile from './components/Profile';
+
+function App() {
+  const { tg } = useTelegram();
+  const navigate = useNavigate();
+  const [showNumberModal, setShowNumberModal] = useState(false);
+  const [showPurchaseResult, setShowPurchaseResult] = useState(false);
+  const [purchaseData, setPurchaseData] = useState(null);
+  const [language, setLanguage] = useState('ru');
+  const [country, setCountry] = useState(null);
+  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
+  const [displayCurrency, setDisplayCurrency] = useState('RUB');
+
+  useEffect(() => {
+    tg.ready();
+    tg.expand();
+
+    // Handle back button for navigation
+    tg.BackButton.onClick(() => {
+      if (window.location.pathname === '/profile') {
+        navigate('/');
+      } else {
+        navigate(-1);
+      }
+    });
+
+    // Show/hide back button based on route
+    if (window.location.pathname === '/profile') {
+      tg.BackButton.show();
+    } else {
+      tg.BackButton.hide();
+    }
+  }, [tg, navigate]);
+
+  const handleBuyNumber = (selectedCountry) => {
+    setCountry(selectedCountry);
+    setShowNumberModal(true);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <PurchaseHistory
+              language={language}
+              selectedCrypto={selectedCrypto}
+              displayCurrency={displayCurrency}
+              onBuyNumber={handleBuyNumber}
+              showPurchaseResult={showPurchaseResult}
+              purchaseData={purchaseData}
+              setShowPurchaseResult={setShowPurchaseResult}
+            />
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <Profile
+              language={language}
+              selectedCrypto={selectedCrypto}
+              displayCurrency={displayCurrency}
+            />
+          }
+        />
+      </Routes>
+      {showNumberModal && (
+        <NumberModal
+          language={language}
+          country={country}
+          selectedCrypto={selectedCrypto}
+          displayCurrency={displayCurrency}
+          onClose={() => setShowNumberModal(false)}
+          setShowPurchaseResult={setShowPurchaseResult}
+          setPurchaseData={setPurchaseData}
+        />
+      )}
+    </div>
+  );
+}
+
+export default App;
+
+
+
+
+
