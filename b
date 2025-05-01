@@ -1,4 +1,3 @@
-Numb
 import { useState, useEffect, useMemo } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
@@ -28,9 +27,9 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
           },
         });
         console.log('API /resources response:', res.data); // Лог для отладки
-        const servicesData = Array.isArray(res.data.services) ? res.data.services : [];
+        const servicesData = Array.isArray(res.data) ? res.data : [];
         setServices(servicesData);
-        setCryptoRates(res.data.rates || {});
+        setCryptoRates(res.data.rates || {}); // rates пока не возвращаются API, оставляем заглушку
         if (lastSelectedResource) {
           const lastService = servicesData.find((s) => s.id === lastSelectedResource);
           if (lastService) {
@@ -39,7 +38,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
           }
         }
       } catch (err) {
-        console.error('Fetch services or rates error:', err);
+        console.error('Fetch services error:', err);
         setError(language === 'ru' ? 'Ошибка загрузки данных' : 'Error loading data');
         setServices([]); // Устанавливаем пустой массив при ошибке
       } finally {
@@ -187,6 +186,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
       close: 'Закрыть',
       error: 'Ошибка покупки',
       loading: 'Загрузка цен...',
+      noServices: 'Сервисы не найдены',
     },
     en: {
       title: 'Select Service',
@@ -199,6 +199,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
       close: 'Close',
       error: 'Purchase error',
       loading: 'Loading prices...',
+      noServices: 'No services found',
     },
   };
 
@@ -222,7 +223,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
             ) : (
               <div className="max-h-64 overflow-y-auto space-y-2">
                 {filteredServices.length === 0 ? (
-                  <p className="text-gray-600">{language === 'ru' ? 'Сервисы не найдены' : 'No services found'}</p>
+                  <p className="text-gray-600">{texts[language].noServices}</p>
                 ) : (
                   filteredServices.map((service) => (
                     <div
@@ -343,336 +344,104 @@ export default NumberModal;
 
 
 
-App.jsx:
+
+
 import { useState, useEffect } from 'react';
-import { useTelegram } from './telegram';
-import CountryList from './components/CountryList';
-import Profile from './components/Profile';
-import PurchaseResult from './components/PurchaseResult';
-import PurchaseHistory from './components/PurchaseHistory';
-import NumberModal from './components/NumberModal';
+import { useTelegram } from '../telegram';
+import NumberModal from './NumberModal';
 import axios from 'axios';
 
-function App() {
-  const { tg, user } = useTelegram();
-  const [language, setLanguage] = useState('ru');
-  const [displayCurrency, setDisplayCurrency] = useState('RUB');
-  const [showCountryList, setShowCountryList] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showLanguageModal, setShowLanguageModal] = useState(false);
-  const [showPurchaseResult, setShowPurchaseResult] = useState(false);
-  const [showPurchaseHistory, setShowPurchaseHistory] = useState(false);
-  const [showNumberModal, setShowNumberModal] = useState(false);
-  const [purchaseData, setPurchaseData] = useState(null);
-  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
-  const [balance, setBalance] = useState('0.00000000');
-  const [displayBalance, setDisplayBalance] = useState('0.00');
-  const [refreshPurchases, setRefreshPurchases] = useState(false);
-  const [isNewUser, setIsNewUser] = useState(false);
-  const [lastSelectedResource, setLastSelectedResource] = useState('other');
+function CountryList({ language, onBack, selectedCrypto, displayCurrency, setShowPurchaseResult, setPurchaseData, lastSelectedResource, onSelectCountry }) {
+  const { tg } = useTelegram();
+  const [countries, setCountries] = useState([]);
+  const [search, setSearch] = useState('');
   const [selectedCountry, setSelectedCountry] = useState(null);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
+    console.log('CountryList props:', { language, selectedCrypto, displayCurrency, lastSelectedResource }); // Лог для отладки
     if (tg) {
-      tg.ready();
-      console.log('Telegram user:', user);
-      tg.BackButton.onClick(() => {
-        if (showProfile) setShowProfile(false);
-        else if (showCountryList) setShowCountryList(false);
-        else if (showNumberModal) setShowNumberModal(false);
-        else if (showPurchaseResult) {
-          setShowPurchaseResult(false);
-          setRefreshPurchases(true);
-        } else if (showPurchaseHistory) setShowPurchaseHistory(false);
-      });
-      if (showCountryList || showProfile || showPurchaseResult || showPurchaseHistory || showNumberModal) {
-        tg.BackButton.show();
-      } else {
-        tg.BackButton.hide();
-      }
-      if (user?.id) {
-        checkUser();
-      }
+      tg.BackButton.show().onClick(onBack);
     }
-  }, [tg, showCountryList, showProfile, showPurchaseResult, showPurchaseHistory, showNumberModal, selectedCrypto, user]);
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
 
-  const checkUser = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      if (res.data.balance === '0.00000000' && !res.data.address) {
-        setIsNewUser(true);
-        setShowLanguageModal(true);
-      } else {
-        setLanguage(res.data.language || 'ru');
-        setDisplayCurrency(res.data.display_currency || 'RUB');
-        setBalance(res.data.balance || '0.00000000');
-        setDisplayBalance(res.data.display_balance || '0.00');
-        setLastSelectedResource(res.data.last_selected_resource || 'other');
-      }
-    } catch (err) {
-      console.error('Check user error:', err);
-    }
-  };
-
-  const handleSelectLanguage = async (lang) => {
-    try {
-      const res = await axios.post(
-        `${API_URL}/set-language/${user.id}`,
-        { language: lang },
-        {
+  useEffect(() => {
+    const fetchCountries = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/countries`, {
           headers: {
-            'telegram-init-data': tg?.initData || '',
             'ngrok-skip-browser-warning': 'true',
           },
-        }
-      );
-      setLanguage(lang);
-      setDisplayCurrency(res.data.display_currency);
-      setShowLanguageModal(false);
-      setIsNewUser(false);
-    } catch (err) {
-      console.error('Set language error:', err);
-    }
-  };
+        });
+        console.log('API /countries response:', res.data); // Лог для отладки
+        setCountries(res.data);
+      } catch (err) {
+        console.error('Fetch countries error:', err);
+      }
+    };
+    fetchCountries();
+  }, [API_URL]);
 
-  const fetchBalance = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setBalance(res.data.balance || '0.00000000');
-      setDisplayBalance(res.data.display_balance || '0.00');
-      setLastSelectedResource(res.data.last_selected_resource || 'other');
-    } catch (err) {
-      console.error('Fetch balance error:', err);
-    }
-  };
+  const filteredCountries = countries.filter((country) =>
+    language === 'ru'
+      ? country.name_ru.toLowerCase().includes(search.toLowerCase())
+      : country.name_en.toLowerCase().includes(search.toLowerCase())
+  );
 
-  const handleSelectCrypto = async (crypto) => {
-    if (!user?.id) return;
-    try {
-      await axios.post(
-        `${API_URL}/select-crypto/${user.id}`,
-        { crypto },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      setSelectedCrypto(crypto);
-      fetchBalance();
-    } catch (err) {
-      console.error('Select crypto error:', err);
-    }
-  };
-
-  const handleViewPurchase = (purchase) => {
-    console.log('Viewing purchase:', purchase);
-    setPurchaseData({
-      ...purchase,
-      purchase_id: purchase.id,
-      country: purchase.country,
-      service: purchase.service_type,
-      resource: purchase.service,
-      number: purchase.number,
-      price: purchase.display_price || purchase.price,
-      code: purchase.code,
-      expiry: purchase.expiry || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    });
-    setShowPurchaseResult(true);
-    setShowPurchaseHistory(false);
-  };
-
-  const handleGoToPurchases = () => {
-    setShowPurchaseResult(false);
-    setShowPurchaseHistory(true);
-    setRefreshPurchases(true);
-  };
-
-  const handleBuyNumber = (country) => {
-    if (!country?.id) {
-      console.error('No country selected:', country);
-      return;
-    }
+  const handleCountrySelect = (country) => {
+    console.log('Selected country:', country); // Лог для отладки
     setSelectedCountry(country);
-    setShowNumberModal(true);
+    onSelectCountry(country);
   };
 
   const texts = {
     ru: {
-      title: 'Виртуальные сим-карты',
-      subtitle: 'Более 70 стран от 0.01 €',
-      buy: 'Купить',
-      purchases: 'Мои покупки',
-      selectLanguage: 'Выберите язык',
+      title: 'Выберите страну',
+      search: 'Поиск...',
     },
     en: {
-      title: 'Virtual SIM Cards',
-      subtitle: 'Over 70 countries from 0.01 €',
-      buy: 'Buy',
-      purchases: 'My Purchases',
-      selectLanguage: 'Select Language',
+      title: 'Select Country',
+      search: 'Search...',
     },
   };
 
-  if (showPurchaseResult) {
-    return (
-      <PurchaseResult
-        language={language}
-        purchaseData={purchaseData}
-        onBack={() => {
-          setShowPurchaseResult(false);
-          setRefreshPurchases(true);
-        }}
-        balance={displayBalance}
-        selectedCrypto={selectedCrypto}
-        displayCurrency={displayCurrency}
-        onGoToPurchases={handleGoToPurchases}
-      />
-    );
-  }
-
-  if (showPurchaseHistory) {
-    return (
-      <PurchaseHistory
-        language={language}
-        onBack={() => setShowPurchaseHistory(false)}
-        refresh={refreshPurchases}
-        setRefresh={setRefreshPurchases}
-        onViewPurchase={handleViewPurchase}
-      />
-    );
-  }
-
-  if (showProfile) {
-    return (
-      <Profile
-        username={user?.first_name || 'User'}
-        selectedCrypto={selectedCrypto}
-        setSelectedCrypto={handleSelectCrypto}
-        balance={displayBalance}
-        displayCurrency={displayCurrency}
-        onBack={() => setShowProfile(false)}
-        language={language}
-      />
-    );
-  }
-
-  if (showNumberModal && selectedCountry) {
-    return (
-      <NumberModal
-        language={language}
-        country={selectedCountry}
-        selectedCrypto={selectedCrypto}
-        displayCurrency={displayCurrency}
-        onClose={() => setShowNumberModal(false)}
-        setShowPurchaseResult={setShowPurchaseResult}
-        setPurchaseData={setPurchaseData}
-        lastSelectedResource={lastSelectedResource}
-        setShowProfile={setShowProfile}
-      />
-    );
-  }
-
-  if (showCountryList) {
-    return (
-      <CountryList
-        language={language}
-        onBack={() => setShowCountryList(false)}
-        selectedCrypto={selectedCrypto}
-        displayCurrency={displayCurrency}
-        setShowPurchaseResult={setShowPurchaseResult}
-        setPurchaseData={setPurchaseData}
-        lastSelectedResource={lastSelectedResource}
-        onSelectCountry={handleBuyNumber}
-      />
-    );
-  }
-
   return (
     <div className="p-4 max-w-md mx-auto">
-      <div className="flex justify-between mb-4">
-        <button
-          className="bg-gray-200 px-3 py-1 rounded"
-          onClick={() => setShowLanguageModal(true)}
-        >
-          {language.toUpperCase()}
-        </button>
-        <button
-          className="text-lg font-semibold text-blue-500"
-          onClick={() => setShowProfile(true)}
-        >
-          {user?.first_name || 'User'}
-        </button>
-      </div>
-      <h1 className="text-2xl font-bold text-center mb-2">
-        {texts[language].title}
-      </h1>
-      <p className="text-center text-gray-600 mb-6">
-        {texts[language].subtitle}
-      </p>
-      <div className="flex flex-col gap-4">
-        <button
-          className="bg-blue-500 text-white px-4 py-2 rounded"
-          onClick={() => setShowCountryList(true)}
-        >
-          {texts[language].buy}
-        </button>
-        <button
-          className="bg-gray-500 text-white px-4 py-2 rounded"
-          onClick={() => setShowPurchaseHistory(true)}
-        >
-          {texts[language].purchases}
-        </button>
-      </div>
-      {showLanguageModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
-          onClick={() => !isNewUser && setShowLanguageModal(false)}
-        >
-          <div
-            className="bg-white p-4 rounded-lg max-w-sm w-full"
-            onClick={(e) => e.stopPropagation()}
+      <h1 className="text-2xl font-bold mb-4 text-center">{texts[language].title}</h1>
+      <input
+        type="text"
+        className="w-full p-2 mb-4 border rounded"
+        placeholder={texts[language].search}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+      <div className="space-y-2">
+        {filteredCountries.map((country) => (
+          <button
+            key={country.id}
+            className="w-full p-2 text-left bg-gray-100 rounded hover:bg-gray-200"
+            onClick={() => handleCountrySelect(country)}
           >
-            <h2 className="text-xl font-bold mb-4">
-              {texts[language].selectLanguage}
-            </h2>
-            <button
-              className="w-full mb-2 bg-gray-200 p-2 rounded"
-              onClick={() => handleSelectLanguage('ru')}
-            >
-              Русский (RUB)
-            </button>
-            <button
-              className="w-full mb-2 bg-gray-200 p-2 rounded"
-              onClick={() => handleSelectLanguage('en')}
-            >
-              English (USD)
-            </button>
-          </div>
-        </div>
+            {language === 'ru' ? country.name_ru : country.name_en}
+          </button>
+        ))}
+      </div>
+      {selectedCountry && (
+        <NumberModal
+          language={language}
+          country={selectedCountry}
+          selectedCrypto={selectedCrypto}
+          displayCurrency={displayCurrency}
+          onClose={() => setSelectedCountry(null)}
+          setShowPurchaseResult={setShowPurchaseResult}
+          setPurchaseData={setPurchaseData}
+          lastSelectedResource={lastSelectedResource}
+          setShowProfile={setShowProfile}
+        />
       )}
     </div>
   );
 }
 
-export default App;
-
-
-
-
-
-
-
-
+export default CountryList;
