@@ -1,272 +1,4 @@
-PROF
-import { useState, useEffect } from 'react';
-import { useTelegram } from '../telegram';
-import CryptoModal from './CryptoModal';
-import BalanceModal from './BalanceModal';
-import QRCode from 'qrcode.react';
-import axios from 'axios';
-
-function Profile({ username, selectedCrypto, setSelectedCrypto, balance, displayCurrency, onBack, language }) {
-  const { tg } = useTelegram();
-  const [showCryptoModal, setShowCryptoModal] = useState(false);
-  const [showBalanceModal, setShowBalanceModal] = useState(false);
-  const [address, setAddress] = useState('');
-  const [isCryptoLoading, setIsCryptoLoading] = useState(false);
-  const [isGeneratingAddress, setIsGeneratingAddress] = useState(false);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  useEffect(() => {
-    if (tg) {
-      tg.BackButton.show().onClick(onBack);
-    }
-    return () => tg?.BackButton.hide();
-  }, [tg, onBack]);
-
-  useEffect(() => {
-    console.log('Profile.jsx: selectedCrypto updated:', selectedCrypto);
-  }, [selectedCrypto]);
-
-  const handleGenerateAddress = async () => {
-    if (!tg?.initData || isCryptoLoading || isGeneratingAddress || !selectedCrypto) {
-      console.warn('Generate address blocked:', {
-        hasInitData: !!tg?.initData,
-        isCryptoLoading,
-        isGeneratingAddress,
-        selectedCrypto,
-      });
-      return;
-    }
-    setIsGeneratingAddress(true);
-    try {
-      console.log('Generating address for crypto:', selectedCrypto);
-      const res = await axios.post(
-        `${API_URL}/generate-address/${tg.initDataUnsafe.user.id}`,
-        { crypto: selectedCrypto },
-        {
-          headers: {
-            'telegram-init-data': tg.initData,
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      console.log('Generate address response:', res.data); // Лог для отладки
-      if (!res.data.address) {
-        throw new Error('No address returned from server');
-      }
-      setAddress(res.data.address);
-      // Ждем обновления состояния перед открытием модалки
-      setTimeout(() => {
-        setShowBalanceModal(true);
-      }, 0);
-    } catch (err) {
-      console.error('Generate address error:', err.response?.data || err.message);
-      tg.showPopup({
-        message: language === 'ru' ? 'Ошибка генерации адреса' : 'Error generating address',
-      });
-    } finally {
-      setIsGeneratingAddress(false);
-    }
-  };
-
-  const handleSelectCrypto = async (crypto) => {
-    if (crypto === selectedCrypto) {
-      setShowCryptoModal(false);
-      return;
-    }
-    setIsCryptoLoading(true);
-    try {
-      console.log('Selecting crypto:', crypto);
-      await axios.post(
-        `${API_URL}/select-crypto/${tg.initDataUnsafe.user.id}`,
-        { crypto },
-        {
-          headers: {
-            'telegram-init-data': tg.initData,
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      setSelectedCrypto(crypto);
-      setShowCryptoModal(false);
-    } catch (err) {
-      console.error('Select crypto error:', err.response?.data || err.message);
-      tg.showPopup({
-        message: language === 'ru' ? 'Ошибка выбора валюты' : 'Error selecting currency',
-      });
-    } finally {
-      setIsCryptoLoading(false);
-    }
-  };
-
-  const texts = {
-    ru: {
-      profile: 'Профиль',
-      balance: 'Баланс',
-      topUp: 'Пополнить',
-      crypto: 'Валюта',
-      copied: 'Адрес скопирован',
-    },
-    en: {
-      profile: 'Profile',
-      balance: 'Balance',
-      topUp: 'Top Up',
-      crypto: 'Currency',
-      copied: 'Address copied',
-    },
-  };
-
-  return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4">{texts[language].profile}</h1>
-      <p className="text-lg mb-4">{username}</p>
-      <div className="mb-4">
-        <p className="text-sm text-gray-600">{texts[language].balance}</p>
-        <p className="text-lg font-semibold">
-          {balance} {displayCurrency}
-        </p>
-      </div>
-      <div className="mb-4">
-        <p className="text-sm text-gray-600">{texts[language].crypto}</p>
-        <button
-          className="text-lg font-semibold text-blue-500"
-          onClick={() => setShowCryptoModal(true)}
-          disabled={isCryptoLoading || isGeneratingAddress}
-        >
-          {selectedCrypto || 'BTC'} {isCryptoLoading && <span className="spinner ml-2"></span>}
-        </button>
-      </div>
-      <button
-        className={`w-full bg-blue-500 text-white px-4 py-2 rounded mb-4 ${
-          isCryptoLoading || isGeneratingAddress || !selectedCrypto ? 'opacity-50 cursor-not-allowed' : ''
-        }`}
-        onClick={handleGenerateAddress}
-        disabled={isCryptoLoading || isGeneratingAddress || !selectedCrypto}
-      >
-        {texts[language].topUp} {isGeneratingAddress && <span className="spinner ml-2"></span>}
-      </button>
-      {showCryptoModal && (
-        <CryptoModal
-          language={language}
-          onClose={() => setShowCryptoModal(false)}
-          onSelect={handleSelectCrypto}
-          selectedCrypto={selectedCrypto}
-          isLoading={isCryptoLoading}
-        />
-      )}
-      {showBalanceModal && (
-        <BalanceModal
-          language={language}
-          address={address}
-          crypto={selectedCrypto}
-          onClose={() => setShowBalanceModal(false)}
-          onCopy={() => tg.showPopup({ message: texts[language].copied })}
-        />
-      )}
-      <style>
-        {`
-          .spinner {
-            display: inline-block;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #3498db;
-            border-radius: 50%;
-            width: 16px;
-            height: 16px;
-            animation: spin 1s linear infinite;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}
-      </style>
-    </div>
-  );
-}
-
-export default Profile;
-
-
-
-
-
-
-
-
-BalanceMOD
-import QRCode from 'qrcode.react';
-
-function BalanceModal({ language, address, crypto, onClose, onCopy }) {
-  const texts = {
-    ru: {
-      title: 'Пополнение баланса',
-      balance: 'Текущий баланс',
-      address: 'Адрес для пополнения',
-      close: 'Закрыть',
-      copy: 'Скопировать адрес',
-    },
-    en: {
-      title: 'Top Up Balance',
-      balance: 'Current Balance',
-      address: 'Deposit Address',
-      close: 'Close',
-      copy: 'Copy Address',
-    },
-  };
-
-  return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white p-4 rounded-lg max-w-sm w-full"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-xl font-bold mb-4">{texts[language].title}</h2>
-        <p className="text-sm text-gray-600 mb-2">{texts[language].balance}</p>
-        <p className="text-lg font-semibold mb-4">{crypto || 'N/A'}</p>
-        {address ? (
-          <>
-            <p className="text-sm text-gray-600 mb-2">{texts[language].address}</p>
-            <p className="text-sm break-all mb-4">{address}</p>
-            <QRCode value={address} size={128} className="mb-4 mx-auto" />
-          </>
-        ) : (
-          <p className="text-sm text-red-500 mb-4">
-            {language === 'ru' ? 'Адрес не сгенерирован' : 'Address not generated'}
-          </p>
-        )}
-        <div className="flex gap-4">
-          <button
-            className="flex-1 bg-gray-500 text-white px-4 py-2 rounded"
-            onClick={onClose}
-          >
-            {texts[language].close}
-          </button>
-          <button
-            className="flex-1 bg-blue-500 text-white px-4 py-2 rounded"
-            onClick={() => {
-              navigator.clipboard.writeText(address || '');
-              onCopy();
-            }}
-            disabled={!address}
-          >
-            {texts[language].copy}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default BalanceModal;
-
-
-
-
-
-
-ROUTES
+ROUT
 const express = require('express');
 const { User, Purchase } = require('./db');
 const { generateAddress, getBalance } = require('./wallet');
@@ -444,6 +176,9 @@ router.post('/generate-address/:telegram_id', async (req, res) => {
     console.log('Generate address request:', { telegram_id, crypto });
     let user = await User.findOne({ telegram_id });
     let addresses = user?.addresses || {};
+    const rates = await fetchCryptoRates();
+    const rate = rates[crypto.toLowerCase()]?.[user?.display_currency.toLowerCase() || 'rub'] || 0;
+    
     if (!user || user.crypto !== crypto || !addresses[crypto]) {
       const address = await generateAddress(telegram_id, crypto);
       addresses[crypto] = address;
@@ -451,11 +186,11 @@ router.post('/generate-address/:telegram_id', async (req, res) => {
         user.addresses = addresses;
         user.crypto = crypto;
         await user.save();
-        console.log('New address generated:', { address, crypto });
-        res.json({ address });
+        console.log('New address generated:', { address, crypto, rate });
+        res.json({ address, rate });
       } else {
         const index = Math.floor(Math.random() * 1000000);
-        await User.create({
+        user = await User.create({
           telegram_id,
           wallet_index: index,
           address,
@@ -466,12 +201,12 @@ router.post('/generate-address/:telegram_id', async (req, res) => {
           display_currency: 'RUB',
           last_selected_resource: 'other',
         });
-        console.log('New user created with address:', { address, crypto });
-        res.json({ address });
+        console.log('New user created with address:', { address, crypto, rate });
+        res.json({ address, rate });
       }
     } else {
-      console.log('Returning cached address:', { address: addresses[crypto], crypto });
-      res.json({ address: addresses[crypto] });
+      console.log('Returning cached address:', { address: addresses[crypto], crypto, rate });
+      res.json({ address: addresses[crypto], rate });
     }
   } catch (err) {
     console.error('Generate address error:', err.message);
@@ -760,4 +495,291 @@ async function processPurchase(user, telegram_id, country, service, currency, re
 }
 
 module.exports = router;
+
+
+
+
+
+PROF
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import CryptoModal from './CryptoModal';
+import BalanceModal from './BalanceModal';
+import QRCode from 'qrcode.react';
+import axios from 'axios';
+
+function Profile({ username, selectedCrypto, setSelectedCrypto, balance, displayCurrency, onBack, language }) {
+  const { tg } = useTelegram();
+  const [showCryptoModal, setShowCryptoModal] = useState(false);
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [address, setAddress] = useState('');
+  const [cryptoRate, setCryptoRate] = useState(0); // Новое состояние для курса
+  const [isCryptoLoading, setIsCryptoLoading] = useState(false);
+  const [isGeneratingAddress, setIsGeneratingAddress] = useState(false);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
+    }
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
+
+  useEffect(() => {
+    console.log('Profile.jsx: selectedCrypto updated:', selectedCrypto);
+  }, [selectedCrypto]);
+
+  const handleGenerateAddress = async () => {
+    if (!tg?.initData || isCryptoLoading || isGeneratingAddress || !selectedCrypto) {
+      console.warn('Generate address blocked:', {
+        hasInitData: !!tg?.initData,
+        isCryptoLoading,
+        isGeneratingAddress,
+        selectedCrypto,
+      });
+      return;
+    }
+    setIsGeneratingAddress(true);
+    try {
+      console.log('Generating address for crypto:', selectedCrypto);
+      const res = await axios.post(
+        `${API_URL}/generate-address/${tg.initDataUnsafe.user.id}`,
+        { crypto: selectedCrypto },
+        {
+          headers: {
+            'telegram-init-data': tg.initData,
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      console.log('Generate address response:', res.data);
+      if (!res.data.address) {
+        throw new Error('No address returned from server');
+      }
+      setAddress(res.data.address);
+      setCryptoRate(res.data.rate || 0); // Сохраняем курс
+      setTimeout(() => {
+        setShowBalanceModal(true);
+      }, 0);
+    } catch (err) {
+      console.error('Generate address error:', err.response?.data || err.message);
+      tg.showPopup({
+        message: language === 'ru' ? 'Ошибка генерации адреса' : 'Error generating address',
+      });
+    } finally {
+      setIsGeneratingAddress(false);
+    }
+  };
+
+  const handleSelectCrypto = async (crypto) => {
+    if (crypto === selectedCrypto) {
+      setShowCryptoModal(false);
+      return;
+    }
+    setIsCryptoLoading(true);
+    try {
+      console.log('Selecting crypto:', crypto);
+      await axios.post(
+        `${API_URL}/select-crypto/${tg.initDataUnsafe.user.id}`,
+        { crypto },
+        {
+          headers: {
+            'telegram-init-data': tg.initData,
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      setSelectedCrypto(crypto);
+      setShowCryptoModal(false);
+    } catch (err) {
+      console.error('Select crypto error:', err.response?.data || err.message);
+      tg.showPopup({
+        message: language === 'ru' ? 'Ошибка выбора валюты' : 'Error selecting currency',
+      });
+    } finally {
+      setIsCryptoLoading(false);
+    }
+  };
+
+  const texts = {
+    ru: {
+      profile: 'Профиль',
+      balance: 'Баланс',
+      topUp: 'Пополнить',
+      crypto: 'Валюта',
+      copied: 'Адрес скопирован',
+    },
+    en: {
+      profile: 'Profile',
+      balance: 'Balance',
+      topUp: 'Top Up',
+      crypto: 'Currency',
+      copied: 'Address copied',
+    },
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4">{texts[language].profile}</h1>
+      <p className="text-lg mb-4">{username}</p>
+      <div className="mb-4">
+        <p className="text-sm text-gray-600">{texts[language].balance}</p>
+        <p className="text-lg font-semibold">
+          {balance} {displayCurrency}
+        </p>
+      </div>
+      <div className="mb-4">
+        <p className="text-sm text-gray-600">{texts[language].crypto}</p>
+        <button
+          className="text-lg font-semibold text-blue-500"
+          onClick={() => setShowCryptoModal(true)}
+          disabled={isCryptoLoading || isGeneratingAddress}
+        >
+          {selectedCrypto || 'BTC'} {isCryptoLoading && <span className="spinner ml-2"></span>}
+        </button>
+      </div>
+      <button
+        className={`w-full bg-blue-500 text-white px-4 py-2 rounded mb-4 ${
+          isCryptoLoading || isGeneratingAddress || !selectedCrypto ? 'opacity-50 cursor-not-allowed' : ''
+        }`}
+        onClick={handleGenerateAddress}
+        disabled={isCryptoLoading || isGeneratingAddress || !selectedCrypto}
+      >
+        {texts[language].topUp} {isGeneratingAddress && <span className="spinner ml-2"></span>}
+      </button>
+      {showCryptoModal && (
+        <CryptoModal
+          language={language}
+          onClose={() => setShowCryptoModal(false)}
+          onSelect={handleSelectCrypto}
+          selectedCrypto={selectedCrypto}
+          isLoading={isCryptoLoading}
+        />
+      )}
+      {showBalanceModal && (
+        <BalanceModal
+          language={language}
+          address={address}
+          crypto={selectedCrypto}
+          cryptoRate={cryptoRate} // Передаем курс
+          displayCurrency={displayCurrency} // Передаем валюту пользователя
+          onClose={() => setShowBalanceModal(false)}
+          onCopy={() => tg.showPopup({ message: texts[language].copied })}
+        />
+      )}
+      <style>
+        {`
+          .spinner {
+            display: inline-block;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+    </div>
+  );
+}
+
+export default Profile;
+
+
+
+
+
+
+
+
+
+BALANCEMOD
+import QRCode from 'qrcode.react';
+
+function BalanceModal({ language, address, crypto, cryptoRate, displayCurrency, onClose, onCopy }) {
+  const texts = {
+    ru: {
+      title: 'Пополнение баланса',
+      balance: 'Текущий баланс',
+      address: 'Адрес для пополнения',
+      close: 'Закрыть',
+      copy: 'Скопировать адрес',
+    },
+    en: {
+      title: 'Top Up Balance',
+      balance: 'Current Balance',
+      address: 'Deposit Address',
+      close: 'Close',
+      copy: 'Copy Address',
+    },
+  };
+
+  const formatRate = (rate) => {
+    if (!rate) return 'N/A';
+    return new Intl.NumberFormat(language === 'ru' ? 'ru-RU' : 'en-US', {
+      style: 'decimal',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(rate);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white p-4 rounded-lg max-w-sm w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-xl font-bold mb-4">{texts[language].title}</h2>
+        <p className="text-sm text-gray-600 mb-2">{texts[language].balance}</p>
+        <p className="text-lg font-semibold mb-4">
+          {crypto || 'N/A'} {cryptoRate ? ` (1 ${crypto} = ${formatRate(cryptoRate)} ${displayCurrency})` : ''}
+        </p>
+        {address ? (
+          <>
+            <p className="text-sm text-gray-600 mb-2">{texts[language].address}</p>
+            <p className="text-sm break-all mb-4">{address}</p>
+            <QRCode value={address} size={128} className="mb-4 mx-auto" />
+          </>
+        ) : (
+          <p className="text-sm text-red-500 mb-4">
+            {language === 'ru' ? 'Адрес не сгенерирован' : 'Address not generated'}
+          </p>
+        )}
+        <div className="flex gap-4">
+          <button
+            className="flex-1 bg-gray-500 text-white px-4 py-2 rounded"
+            onClick={onClose}
+          >
+            {texts[language].close}
+          </button>
+          <button
+            className="flex-1 bg-blue-500 text-white px-4 py-2 rounded"
+            onClick={() => {
+              navigator.clipboard.writeText(address || '');
+              onCopy();
+            }}
+            disabled={!address}
+          >
+            {texts[language].copy}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default BalanceModal;
+
+
+
+
+
 
