@@ -1,4 +1,192 @@
-App
+PROF
+import { useState, useEffect } from 'react';
+import { useTelegram } from '../telegram';
+import CryptoModal from './CryptoModal';
+import BalanceModal from './BalanceModal';
+import QRCode from 'qrcode.react';
+import axios from 'axios';
+
+function Profile({ username, selectedCrypto, setSelectedCrypto, balance, displayCurrency, onBack, language }) {
+  const { tg } = useTelegram();
+  const [showCryptoModal, setShowCryptoModal] = useState(false);
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [address, setAddress] = useState('');
+  const [isCryptoLoading, setIsCryptoLoading] = useState(false);
+  const [isGeneratingAddress, setIsGeneratingAddress] = useState(false);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
+    }
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
+
+  useEffect(() => {
+    console.log('Profile.jsx: selectedCrypto updated:', selectedCrypto); // Лог для отладки
+  }, [selectedCrypto]);
+
+  const handleGenerateAddress = async () => {
+    if (!tg?.initData || isCryptoLoading || isGeneratingAddress || !selectedCrypto) {
+      console.warn('Generate address blocked:', {
+        hasInitData: !!tg?.initData,
+        isCryptoLoading,
+        isGeneratingAddress,
+        selectedCrypto,
+      });
+      return;
+    }
+    setIsGeneratingAddress(true);
+    try {
+      console.log('Generating address for crypto:', selectedCrypto);
+      const res = await axios.post(
+        `${API_URL}/generate-address/${tg.initDataUnsafe.user.id}`,
+        { crypto: selectedCrypto },
+        {
+          headers: {
+            'telegram-init-data': tg.initData,
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      console.log('Generate address response:', res.data);
+      setAddress(res.data.address);
+      setShowBalanceModal(true);
+    } catch (err) {
+      console.error('Generate address error:', err.response?.data || err.message);
+      tg.showPopup({
+        message: language === 'ru' ? 'Ошибка генерации адреса' : 'Error generating address',
+      });
+    } finally {
+      setIsGeneratingAddress(false);
+    }
+  };
+
+  const handleSelectCrypto = async (crypto) => {
+    if (crypto === selectedCrypto) {
+      setShowCryptoModal(false);
+      return;
+    }
+    setIsCryptoLoading(true);
+    try {
+      console.log('Selecting crypto:', crypto);
+      await axios.post(
+        `${API_URL}/select-crypto/${tg.initDataUnsafe.user.id}`,
+        { crypto },
+        {
+          headers: {
+            'telegram-init-data': tg.initData,
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      setSelectedCrypto(crypto);
+      setShowCryptoModal(false);
+    } catch (err) {
+      console.error('Select crypto error:', err.response?.data || err.message);
+      tg.showPopup({
+        message: language === 'ru' ? 'Ошибка выбора валюты' : 'Error selecting currency',
+      });
+    } finally {
+      setIsCryptoLoading(false);
+    }
+  };
+
+  const texts = {
+    ru: {
+      profile: 'Профиль',
+      balance: 'Баланс',
+      topUp: 'Пополнить',
+      crypto: 'Валюта',
+      copied: 'Адрес скопирован',
+    },
+    en: {
+      profile: 'Profile',
+      balance: 'Balance',
+      topUp: 'Top Up',
+      crypto: 'Currency',
+      copied: 'Address copied',
+    },
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto">
+      <h1 className="text-2xl font-bold mb-4">{texts[language].profile}</h1>
+      <p className="text-lg mb-4">{username}</p>
+      <div className="mb-4">
+        <p className="text-sm text-gray-600">{texts[language].balance}</p>
+        <p className="text-lg font-semibold">
+          {balance} {displayCurrency}
+        </p>
+      </div>
+      <div className="mb-4">
+        <p className="text-sm text-gray-600">{texts[language].crypto}</p>
+        <button
+          className="text-lg font-semibold text-blue-500"
+          onClick={() => setShowCryptoModal(true)}
+          disabled={isCryptoLoading || isGeneratingAddress}
+        >
+          {selectedCrypto || 'BTC'} {isCryptoLoading && <span className="spinner ml-2"></span>}
+        </button>
+      </div>
+      <button
+        className={`w-full bg-blue-500 text-white px-4 py-2 rounded mb-4 ${
+          isCryptoLoading || isGeneratingAddress || !selectedCrypto ? 'opacity-50 cursor-not-allowed' : ''
+        }`}
+        onClick={handleGenerateAddress}
+        disabled={isCryptoLoading || isGeneratingAddress || !selectedCrypto}
+      >
+        {texts[language].topUp} {isGeneratingAddress && <span className="spinner ml-2"></span>}
+      </button>
+      {showCryptoModal && (
+        <CryptoModal
+          language={language}
+          onClose={() => setShowCryptoModal(false)}
+          onSelect={handleSelectCrypto}
+          selectedCrypto={selectedCrypto}
+          isLoading={isCryptoLoading}
+        />
+      )}
+      {showBalanceModal && (
+        <BalanceModal
+          language={language}
+          address={address}
+          crypto={selectedCrypto}
+          onClose={() => setShowBalanceModal(false)}
+          onCopy={() => tg.showPopup({ message: texts[language].copied })}
+        />
+      )}
+      <style>
+        {`
+          .spinner {
+            display: inline-block;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+    </div>
+  );
+}
+
+export default Profile;
+
+
+
+
+
+
+
+
+APP
 import { useState, useEffect } from 'react';
 import { useTelegram } from './telegram';
 import CountryList from './components/CountryList';
@@ -19,7 +207,7 @@ function App() {
   const [showPurchaseHistory, setShowPurchaseHistory] = useState(false);
   const [showNumberModal, setShowNumberModal] = useState(false);
   const [purchaseData, setPurchaseData] = useState(null);
-  const [selectedCrypto, setSelectedCrypto] = useState('BTC'); // Убедимся, что значение по умолчанию всегда BTC
+  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
   const [balance, setBalance] = useState('0.00000000');
   const [displayBalance, setDisplayBalance] = useState('0.00');
   const [refreshPurchases, setRefreshPurchases] = useState(false);
@@ -50,7 +238,11 @@ function App() {
         checkUser();
       }
     }
-  }, [tg, showCountryList, showProfile, showPurchaseResult, showPurchaseHistory, showNumberModal, selectedCrypto, user]);
+  }, [tg, showCountryList, showProfile, showPurchaseResult, showPurchaseHistory, showNumberModal, user]);
+
+  useEffect(() => {
+    console.log('App.jsx: selectedCrypto updated:', selectedCrypto); // Лог для отладки
+  }, [selectedCrypto]);
 
   const checkUser = async () => {
     try {
@@ -70,10 +262,13 @@ function App() {
         setBalance(res.data.balance || '0.00000000');
         setDisplayBalance(res.data.display_balance || '0.00');
         setLastSelectedResource(res.data.last_selected_resource || 'other');
-        setSelectedCrypto(res.data.crypto || 'BTC'); // Устанавливаем криптовалюту из ответа сервера
+        const serverCrypto = res.data.crypto || 'BTC';
+        setSelectedCrypto(serverCrypto);
+        console.log('Set selectedCrypto from server:', serverCrypto); // Лог для отладки
       }
     } catch (err) {
-      console.error('Check user error:', err);
+      console.error('Check user error:', err.response?.data || err.message);
+      setSelectedCrypto('BTC'); // Значение по умолчанию при ошибке
     }
   };
 
@@ -94,7 +289,7 @@ function App() {
       setShowLanguageModal(false);
       setIsNewUser(false);
     } catch (err) {
-      console.error('Set language error:', err);
+      console.error('Set language error:', err.response?.data || err.message);
     }
   };
 
@@ -110,14 +305,17 @@ function App() {
       setDisplayBalance(res.data.display_balance || '0.00');
       setLastSelectedResource(res.data.last_selected_resource || 'other');
     } catch (err) {
-      console.error('Fetch balance error:', err);
+      console.error('Fetch balance error:', err.response?.data || err.message);
     }
   };
 
   const handleSelectCrypto = async (crypto) => {
-    if (!user?.id) return;
+    if (!user?.id || !crypto) {
+      console.warn('Select crypto blocked:', { userId: user?.id, crypto });
+      return;
+    }
     try {
-      console.log('App selecting crypto:', crypto); // Лог для отладки
+      console.log('App selecting crypto:', crypto);
       await axios.post(
         `${API_URL}/select-crypto/${user.id}`,
         { crypto },
@@ -131,7 +329,7 @@ function App() {
       setSelectedCrypto(crypto);
       fetchBalance();
     } catch (err) {
-      console.error('Select crypto error:', err);
+      console.error('Select crypto error:', err.response?.data || err.message);
     }
   };
 
@@ -327,7 +525,12 @@ export default App;
 
 
 
-routes
+
+
+
+
+
+ROUTES
 const express = require('express');
 const { User, Purchase } = require('./db');
 const { generateAddress, getBalance } = require('./wallet');
@@ -496,12 +699,13 @@ router.get('/resources', async (req, res) => {
 router.post('/generate-address/:telegram_id', async (req, res) => {
   const { telegram_id } = req.params;
   const { crypto } = req.body;
+  console.log('Raw request body:', req.body); // Лог для отладки
   try {
-    console.log('Generate address request:', { telegram_id, crypto }); // Лог для отладки
     if (!crypto || !SUPPORTED_CRYPTOS.includes(crypto)) {
-      console.warn('Invalid crypto:', crypto);
+      console.warn('Invalid crypto:', { crypto, supported: SUPPORTED_CRYPTOS });
       return res.status(400).json({ error: `Invalid cryptocurrency: ${crypto || 'undefined'}` });
     }
+    console.log('Generate address request:', { telegram_id, crypto });
     let user = await User.findOne({ telegram_id });
     let addresses = user?.addresses || {};
     if (!user || user.crypto !== crypto || !addresses[crypto]) {
@@ -534,7 +738,7 @@ router.post('/generate-address/:telegram_id', async (req, res) => {
       res.json({ address: addresses[crypto] });
     }
   } catch (err) {
-    console.error('Generate address error:', err);
+    console.error('Generate address error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -605,9 +809,10 @@ router.post('/buy', async (req, res) => {
 router.post('/select-crypto/:telegram_id', async (req, res) => {
   const { telegram_id } = req.params;
   const { crypto } = req.body;
+  console.log('Raw request body for select-crypto:', req.body); // Лог для отладки
   try {
     if (!crypto || !SUPPORTED_CRYPTOS.includes(crypto)) {
-      console.warn('Invalid crypto in select-crypto:', crypto);
+      console.warn('Invalid crypto in select-crypto:', { crypto, supported: SUPPORTED_CRYPTOS });
       return res.status(400).json({ error: `Invalid cryptocurrency: ${crypto || 'undefined'}` });
     }
     let user = await User.findOne({ telegram_id });
@@ -819,6 +1024,7 @@ async function processPurchase(user, telegram_id, country, service, currency, re
 }
 
 module.exports = router;
+
 
 
 
