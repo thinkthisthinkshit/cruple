@@ -1,54 +1,4 @@
-function InsufficientFundsModal({ language, data, onClose, setShowProfile }) {
-  const texts = {
-    ru: {
-      title: 'Недостаточно средств',
-      balance: 'Ваш баланс',
-      price: 'Стоимость услуги',
-      topUp: 'Пополнить',
-    },
-    en: {
-      title: 'Insufficient Funds',
-      balance: 'Your Balance',
-      price: 'Service Cost',
-      topUp: 'Top Up',
-    },
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg max-w-sm w-full">
-        <h2 className="text-xl font-bold mb-4">{texts[language].title}</h2>
-        <p className="mb-2">
-          <span className="font-semibold">{texts[language].balance}:</span> {data.balance}
-        </p>
-        <p className="mb-4">
-          <span className="font-semibold">{texts[language].price} ({data.serviceType}):</span> {data.price}
-        </p>
-        <button
-          className="w-full bg-blue-500 text-white px-4 py-2 rounded"
-          onClick={() => {
-            onClose();
-            setShowProfile(true);
-          }}
-        >
-          {texts[language].topUp}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default InsufficientFundsModal;
-
-
-
-
-
-
-
-
-
-NUMBER:
+Numb
 import { useState, useEffect, useMemo } from 'react';
 import { useTelegram } from '../telegram';
 import axios from 'axios';
@@ -77,15 +27,21 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
             'ngrok-skip-browser-warning': 'true',
           },
         });
-        setServices(res.data.services);
-        setCryptoRates(res.data.rates);
+        console.log('API /resources response:', res.data); // Лог для отладки
+        const servicesData = Array.isArray(res.data.services) ? res.data.services : [];
+        setServices(servicesData);
+        setCryptoRates(res.data.rates || {});
         if (lastSelectedResource) {
-          const lastService = res.data.services.find((s) => s.id === lastSelectedResource);
-          if (lastService) setSelectedService(lastService);
+          const lastService = servicesData.find((s) => s.id === lastSelectedResource);
+          if (lastService) {
+            console.log('Found last selected service:', lastService); // Лог для отладки
+            setSelectedService(lastService);
+          }
         }
       } catch (err) {
         console.error('Fetch services or rates error:', err);
         setError(language === 'ru' ? 'Ошибка загрузки данных' : 'Error loading data');
+        setServices([]); // Устанавливаем пустой массив при ошибке
       } finally {
         setIsLoading(false);
       }
@@ -98,8 +54,12 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
   }, 300);
 
   const filteredServices = useMemo(() => {
+    if (!Array.isArray(services)) {
+      console.warn('Services is not an array:', services); // Лог для отладки
+      return [];
+    }
     return services.filter((service) =>
-      service.name.toLowerCase().includes(search.toLowerCase())
+      service?.name?.toLowerCase().includes(search.toLowerCase())
     );
   }, [services, search]);
 
@@ -117,6 +77,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
           'ngrok-skip-browser-warning': 'true',
         },
       });
+      console.log('Balance response:', balanceRes.data); // Лог для отладки
       const { balance, display_balance } = balanceRes.data;
 
       // Calculate price
@@ -160,6 +121,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
           },
         }
       );
+      console.log('Buy number response:', res.data); // Лог для отладки
       if (res.data.success) {
         setPurchaseData({
           ...res.data,
@@ -259,26 +221,30 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
               </div>
             ) : (
               <div className="max-h-64 overflow-y-auto space-y-2">
-                {filteredServices.map((service) => (
-                  <div
-                    key={service.id}
-                    className={`p-2 border rounded cursor-pointer ${
-                      selectedService?.id === service.id ? 'bg-blue-100' : ''
-                    }`}
-                    onClick={() => handleServiceSelect(service)}
-                  >
-                    <p className="font-semibold">{service.name}</p>
-                    <p className="text-sm text-gray-600">
-                      {texts[language].sms}: {getPriceData('sms').displayPrice} {displayCurrency}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      {texts[language].call}: {getPriceData('call').displayPrice} {displayCurrency}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      {texts[language].rent}: {getPriceData('rent').displayPrice} {displayCurrency}
-                    </p>
-                  </div>
-                ))}
+                {filteredServices.length === 0 ? (
+                  <p className="text-gray-600">{language === 'ru' ? 'Сервисы не найдены' : 'No services found'}</p>
+                ) : (
+                  filteredServices.map((service) => (
+                    <div
+                      key={service.id}
+                      className={`p-2 border rounded cursor-pointer ${
+                        selectedService?.id === service.id ? 'bg-blue-100' : ''
+                      }`}
+                      onClick={() => handleServiceSelect(service)}
+                    >
+                      <p className="font-semibold">{service.name}</p>
+                      <p className="text-sm text-gray-600">
+                        {texts[language].sms}: {getPriceData('sms').displayPrice} {displayCurrency}
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {texts[language].call}: {getPriceData('call').displayPrice} {displayCurrency}
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {texts[language].rent}: {getPriceData('rent').displayPrice} {displayCurrency}
+                      </p>
+                    </div>
+                  ))
+                )}
               </div>
             )}
             {error && <p className="text-red-500 mt-2">{error}</p>}
@@ -294,7 +260,7 @@ function NumberModal({ language, country, selectedCrypto, displayCurrency, onClo
         ) : (
           <>
             <h2 className="text-xl font-bold mb-4">{texts[language].selectType}</h2>
-            <p className="mb-4">{texts[language].title}: {selectedService.name}</p>
+            <p className="mb-4">{texts[language].title}: {selectedService?.name}</p>
             {isLoading ? (
               <div className="flex items-center justify-center">
                 <div className="spinner border-t-2 border-blue-500 rounded-full w-5 h-5 animate-spin mr-2"></div>
@@ -377,196 +343,7 @@ export default NumberModal;
 
 
 
-
-
-
-
-BALANCEMOD
-import { useState, useEffect } from 'react';
-import { useTelegram } from '../telegram';
-import axios from 'axios';
-import QRCode from 'qrcode.react';
-
-function BalanceModal({ language, selectedCrypto, displayCurrency, balance, onClose }) {
-  const { tg, user } = useTelegram();
-  const [address, setAddress] = useState('');
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  useEffect(() => {
-    const fetchAddress = async () => {
-      try {
-        const res = await axios.post(
-          `${API_URL}/generate-address/${user.id}`,
-          { crypto: selectedCrypto },
-          {
-            headers: {
-              'telegram-init-data': tg?.initData || '',
-              'ngrok-skip-browser-warning': 'true',
-            },
-          }
-        );
-        setAddress(res.data.address);
-      } catch (err) {
-        console.error('Fetch address error:', err);
-      }
-    };
-    if (user?.id) {
-      fetchAddress();
-    }
-  }, [user, selectedCrypto]);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(address);
-      tg?.showPopup({
-        message: language === 'ru' ? 'Адрес скопирован' : 'Address copied',
-      });
-    } catch (err) {
-      console.error('Copy address error:', err);
-    }
-  };
-
-  const texts = {
-    ru: {
-      title: 'Пополнить баланс',
-      address: 'Адрес кошелька',
-      balance: 'Текущий баланс',
-      copy: 'Скопировать',
-      close: 'Закрыть',
-    },
-    en: {
-      title: 'Top Up Balance',
-      address: 'Wallet Address',
-      balance: 'Current Balance',
-      copy: 'Copy',
-      close: 'Close',
-    },
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-sm w-full">
-        <h2 className="text-lg font-bold mb-4">{texts[language].title}</h2>
-        <p className="mb-4">
-          <span className="font-semibold">{texts[language].balance}:</span>{' '}
-          {balance} {displayCurrency}
-        </p>
-        {address && (
-          <>
-            <p className="text-sm font-semibold mb-2">{texts[language].address}:</p>
-            <p className="text-sm text-center mb-4 break-all">{address}</p>
-            <QRCode value={`${selectedCrypto.toLowerCase()}:${address}`} className="mx-auto mb-4" />
-          </>
-        )}
-        <div className="flex justify-between">
-          <button
-            className="bg-blue-500 text-white px-4 py-2 rounded"
-            onClick={handleCopy}
-          >
-            {texts[language].copy}
-          </button>
-          <button
-            className="bg-gray-500 text-white px-4 py-2 rounded"
-            onClick={onClose}
-          >
-            {texts[language].close}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default BalanceModal;
-
-
-
-
-
-
-
-
-
-
-PROFILE:
-import { useState, useEffect } from 'react';
-import { useTelegram } from '../telegram';
-import BalanceModal from './BalanceModal';
-
-function Profile({ username, selectedCrypto, setSelectedCrypto, balance, displayCurrency, onBack, language }) {
-  const { tg } = useTelegram();
-  const [showBalanceModal, setShowBalanceModal] = useState(false);
-
-  useEffect(() => {
-    if (tg) {
-      tg.BackButton.show().onClick(onBack);
-    }
-    return () => tg?.BackButton.hide();
-  }, [tg, onBack]);
-
-  const handleCryptoChange = (crypto) => {
-    setSelectedCrypto(crypto);
-  };
-
-  return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-center">Profile</h1>
-      <div className="p-4 bg-gray-100 rounded-lg shadow">
-        <div className="flex justify-between mb-2">
-          <p className="font-semibold">Username:</p>
-          <p>{username}</p>
-        </div>
-        <div className="flex justify-between mb-2">
-          <p className="font-semibold">Balance:</p>
-          <p>{balance} {displayCurrency}</p>
-        </div>
-        <div className="flex justify-between mb-2">
-          <p className="font-semibold">Crypto:</p>
-          <select
-            value={selectedCrypto}
-            onChange={(e) => handleCryptoChange(e.target.value)}
-            className="border rounded px-2 py-1"
-          >
-            <option value="BTC">BTC</option>
-            <option value="USDT">USDT</option>
-            <option value="LTC">LTC</option>
-            <option value="ETH">ETH</option>
-            <option value="BNB">BNB</option>
-            <option value="AVAX">AVAX</option>
-            <option value="ADA">ADA</option>
-            <option value="SOL">SOL</option>
-          </select>
-        </div>
-      </div>
-      <button
-        className="w-full bg-blue-500 text-white px-4 py-2 rounded mt-4"
-        onClick={() => setShowBalanceModal(true)}
-      >
-        Balance
-      </button>
-      {showBalanceModal && (
-        <BalanceModal
-          language={language}
-          selectedCrypto={selectedCrypto}
-          displayCurrency={displayCurrency}
-          balance={balance}
-          onClose={() => setShowBalanceModal(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-export default Profile;
-
-
-
-
-
-
-
-
-
+App.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from './telegram';
 import CountryList from './components/CountryList';
@@ -724,6 +501,10 @@ function App() {
   };
 
   const handleBuyNumber = (country) => {
+    if (!country?.id) {
+      console.error('No country selected:', country);
+      return;
+    }
     setSelectedCountry(country);
     setShowNumberModal(true);
   };
@@ -788,7 +569,7 @@ function App() {
     );
   }
 
-  if (showNumberModal) {
+  if (showNumberModal && selectedCountry) {
     return (
       <NumberModal
         language={language}
@@ -887,3 +668,11 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
