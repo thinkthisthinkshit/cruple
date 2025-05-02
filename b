@@ -1,482 +1,57 @@
-Settings.jsx:
-import { useEffect, useState } from 'react';
-import { useTelegram } from '../telegram';
+db.js:
+const mongoose = require('mongoose');
 
-function Settings({ language, onBack, onSelectLanguage, onSelectCurrency }) {
-  const { tg } = useTelegram();
-  const [showLanguageModal, setShowLanguageModal] = useState(false);
-  const [showCurrencyModal, setShowCurrencyModal] = useState(false);
+const userSchema = new mongoose.Schema({
+  telegram_id: { type: String, required: true, unique: true },
+  wallet_index: { type: Number, required: true },
+  addresses: { type: Map, of: String, default: {} },
+  balance: { type: Number, default: 0 },
+  crypto: { type: String, default: 'BTC' },
+  language: { type: String, default: 'ru' },
+  display_currency: { type: String, default: 'RUB' },
+  last_selected_resource: { type: String, default: 'other' },
+});
 
-  useEffect(() => {
-    if (tg) {
-      tg.BackButton.show().onClick(onBack);
-    }
-    return () => tg?.BackButton.hide();
-  }, [tg, onBack]);
+const purchaseSchema = new mongoose.Schema({
+  telegram_id: { type: String, required: true },
+  country: { type: String, required: true },
+  resource: { type: String, required: true },
+  code: { type: String },
+  number: { type: String },
+  price: { type: String },
+  service_type: { type: String, required: true },
+  status: { type: String, default: 'active' },
+  created_at: { type: Date, default: Date.now },
+});
 
-  const texts = {
-    ru: {
-      title: 'Настройки',
-      languageAndCurrency: 'Язык и валюта',
-      currency: 'Валюта',
-      selectLanguage: 'Выберите язык',
-      selectCurrency: 'Выберите валюту',
-      close: 'Закрыть',
-    },
-    en: {
-      title: 'Settings',
-      languageAndCurrency: 'Language and Currency',
-      currency: 'Currency',
-      selectLanguage: 'Select Language',
-      selectCurrency: 'Select Currency',
-      close: 'Close',
-    },
-  };
+const transactionSchema = new mongoose.Schema({
+  telegram_id: { type: String, required: true },
+  crypto: { type: String, required: true },
+  address: { type: String, required: true },
+  amount: { type: Number, required: true },
+  txid: { type: String, required: true },
+  status: { type: String, default: 'pending' }, // pending, confirmed, failed
+  created_at: { type: Date, default: Date.now },
+});
 
-  const languages = [
-    { id: 'ru', name: 'Русский (RUB)', currency: 'RUB' },
-    { id: 'en', name: 'English (USD)', currency: 'USD' },
-  ];
+const User = mongoose.model('User', userSchema);
+const Purchase = mongoose.model('Purchase', purchaseSchema);
+const Transaction = mongoose.model('Transaction', transactionSchema);
 
-  const currencies = [
-    { id: 'RUB', name: 'RUB' },
-    { id: 'USD', name: 'USD' },
-  ];
-
-  const handleSelectLanguage = (lang) => {
-    onSelectLanguage(lang.id);
-    setShowLanguageModal(false);
-  };
-
-  const handleSelectCurrency = (currency) => {
-    onSelectCurrency(currency.id);
-    setShowCurrencyModal(false);
-  };
-
-  return (
-    <div className="p-4 max-w-md mx-auto pb-16">
-      <h1 className="text-2xl font-bold mb-4">{texts[language].title}</h1>
-      <div className="flex flex-col gap-4">
-        <button
-          className="w-full bg-gray-200 p-2 rounded text-left"
-          onClick={() => setShowLanguageModal(true)}
-        >
-          {texts[language].languageAndCurrency}
-        </button>
-        <button
-          className="w-full bg-gray-200 p-2 rounded text-left"
-          onClick={() => setShowCurrencyModal(true)}
-        >
-          {texts[language].currency}
-        </button>
-      </div>
-
-      {showLanguageModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
-          onClick={() => setShowLanguageModal(false)}
-        >
-          <div
-            className="bg-white p-4 rounded-lg max-w-sm w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-4">{texts[language].selectLanguage}</h2>
-            <div className="flex flex-col gap-2 mb-4">
-              {languages.map((lang) => (
-                <button
-                  key={lang.id}
-                  className="w-full bg-gray-200 p-2 rounded text-left"
-                  onClick={() => handleSelectLanguage(lang)}
-                >
-                  {lang.name}
-                </button>
-              ))}
-            </div>
-            <button
-              className="w-full bg-gray-500 text-white px-4 py-2 rounded"
-              onClick={() => setShowLanguageModal(false)}
-            >
-              {texts[language].close}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showCurrencyModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
-          onClick={() => setShowCurrencyModal(false)}
-        >
-          <div
-            className="bg-white p-4 rounded-lg max-w-sm w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-4">{texts[language].selectCurrency}</h2>
-            <div className="flex flex-col gap-2 mb-4">
-              {currencies.map((currency) => (
-                <button
-                  key={currency.id}
-                  className="w-full bg-gray-200 p-2 rounded text-left"
-                  onClick={() => handleSelectCurrency(currency)}
-                >
-                  {currency.name}
-                </button>
-              ))}
-            </div>
-            <button
-              className="w-full bg-gray-500 text-white px-4 py-2 rounded"
-              onClick={() => setShowCurrencyModal(false)}
-            >
-              {texts[language].close}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default Settings;
-
-
-
-
-
-
-
-App.jsx:
-import { useState, useEffect } from 'react';
-import { useTelegram } from './telegram';
-import CountryList from './components/CountryList';
-import Profile from './components/Profile';
-import PurchaseResult from './components/PurchaseResult';
-import PurchaseHistory from './components/PurchaseHistory';
-import NumberModal from './components/NumberModal';
-import BottomNav from './components/BottomNav';
-import Settings from './components/Settings';
-import axios from 'axios';
-
-function App() {
-  const { tg, user } = useTelegram();
-  const [language, setLanguage] = useState('ru');
-  const [displayCurrency, setDisplayCurrency] = useState('RUB');
-  const [showCountryList, setShowCountryList] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showPurchaseResult, setShowPurchaseResult] = useState(false);
-  const [showPurchaseHistory, setShowPurchaseHistory] = useState(false);
-  const [showNumberModal, setShowNumberModal] = useState(false);
-  const [purchaseData, setPurchaseData] = useState(null);
-  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
-  const [balance, setBalance] = useState('0.00000000');
-  const [displayBalance, setDisplayBalance] = useState('0.00');
-  const [refreshPurchases, setRefreshPurchases] = useState(false);
-  const [lastSelectedResource, setLastSelectedResource] = useState('other');
-  const [selectedCountry, setSelectedCountry] = useState(null);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  useEffect(() => {
-    if (tg) {
-      tg.ready();
-      console.log('Telegram user:', user);
-      tg.BackButton.onClick(() => {
-        if (showProfile) setShowProfile(false);
-        else if (showCountryList) setShowCountryList(false);
-        else if (showNumberModal) setShowNumberModal(false);
-        else if (showPurchaseResult) {
-          setShowPurchaseResult(false);
-          setRefreshPurchases(true);
-        } else if (showPurchaseHistory) setShowPurchaseHistory(false);
-        else if (showSettings) setShowSettings(false);
-      });
-      if (showCountryList || showProfile || showPurchaseResult || showPurchaseHistory || showNumberModal || showSettings) {
-        tg.BackButton.show();
-      } else {
-        tg.BackButton.hide();
-      }
-      if (user?.id) {
-        checkUser();
-      }
-    }
-  }, [tg, showCountryList, showProfile, showPurchaseResult, showPurchaseHistory, showNumberModal, showSettings, user]);
-
-  const checkUser = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      console.log('Check user response:', res.data);
-      setLanguage(res.data.language || 'ru');
-      setDisplayCurrency(res.data.display_currency || 'RUB');
-      setBalance(res.data.balance || '0.00000000');
-      setDisplayBalance(res.data.display_balance || '0.00');
-      setLastSelectedResource(res.data.last_selected_resource || 'other');
-      const serverCrypto = res.data.crypto || 'BTC';
-      setSelectedCrypto(serverCrypto);
-      console.log('Set selectedCrypto from server:', serverCrypto);
-    } catch (err) {
-      console.error('Check user error:', err.response?.data || err.message);
-      setSelectedCrypto('BTC');
-    }
-  };
-
-  const handleSelectLanguage = async (lang) => {
-    try {
-      const res = await axios.post(
-        `${API_URL}/set-language/${user.id}`,
-        { language: lang },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      setLanguage(lang);
-      setDisplayCurrency(res.data.display_currency);
-    } catch (err) {
-      console.error('Set language error:', err.response?.data || err.message);
-    }
-  };
-
-  const handleSelectCurrency = async (currency) => {
-    try {
-      const res = await axios.post(
-        `${API_URL}/set-currency/${user.id}`,
-        { currency },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      setDisplayCurrency(res.data.display_currency);
-    } catch (err) {
-      console.error('Set currency error:', err.response?.data || err.message);
-    }
-  };
-
-  const fetchBalance = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/balance/${user.id}?crypto=${selectedCrypto}`, {
-        headers: {
-          'telegram-init-data': tg?.initData || '',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-      setBalance(res.data.balance || '0.00000000');
-      setDisplayBalance(res.data.display_balance || '0.00');
-      setLastSelectedResource(res.data.last_selected_resource || 'other');
-    } catch (err) {
-      console.error('Fetch balance error:', err.response?.data || err.message);
-    }
-  };
-
-  const handleSelectCrypto = async (crypto) => {
-    if (!user?.id || !crypto) {
-      console.warn('Select crypto blocked:', { userId: user?.id, crypto });
-      return;
-    }
-    try {
-      console.log('App selecting crypto:', crypto);
-      await axios.post(
-        `${API_URL}/select-crypto/${user.id}`,
-        { crypto },
-        {
-          headers: {
-            'telegram-init-data': tg?.initData || '',
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      setSelectedCrypto(crypto);
-      fetchBalance();
-    } catch (err) {
-      console.error('Select crypto error:', err.response?.data || err.message);
-    }
-  };
-
-  const handleViewPurchase = (purchase) => {
-    console.log('Viewing purchase:', purchase);
-    setPurchaseData({
-      ...purchase,
-      purchase_id: purchase.id,
-      country: purchase.country,
-      service: purchase.service_type,
-      resource: purchase.service,
-      number: purchase.number,
-      price: purchase.display_price || purchase.price,
-      code: purchase.code,
-      expiry: purchase.expiry || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+async function connectDB() {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 10000,
     });
-    setShowPurchaseResult(true);
-    setShowPurchaseHistory(false);
-  };
-
-  const handleGoToPurchases = () => {
-    setShowPurchaseResult(false);
-    setShowPurchaseHistory(true);
-    setRefreshPurchases(true);
-  };
-
-  const handleBuyNumber = (country) => {
-    setSelectedCountry(country);
-    setShowNumberModal(true);
-  };
-
-  const texts = {
-    ru: {
-      title: 'Виртуальные сим-карты',
-      subtitle: 'Более 70 стран от 0.01 €',
-      buy: 'Купить',
-      purchases: 'Мои покупки',
-    },
-    en: {
-      title: 'Virtual SIM Cards',
-      subtitle: 'Over 70 countries from 0.01 €',
-      buy: 'Buy',
-      purchases: 'My Purchases',
-    },
-  };
-
-  return (
-    <div className="pb-16">
-      {showPurchaseResult ? (
-        <PurchaseResult
-          language={language}
-          purchaseData={purchaseData}
-          onBack={() => {
-            setShowPurchaseResult(false);
-            setRefreshPurchases(true);
-          }}
-          balance={displayBalance}
-          selectedCrypto={selectedCrypto}
-          displayCurrency={displayCurrency}
-          onGoToPurchases={handleGoToPurchases}
-        />
-      ) : showPurchaseHistory ? (
-        <PurchaseHistory
-          language={language}
-          onBack={() => setShowPurchaseHistory(false)}
-          refresh={refreshPurchases}
-          setRefresh={setRefreshPurchases}
-          onViewPurchase={handleViewPurchase}
-        />
-      ) : showProfile ? (
-        <Profile
-          username={user?.first_name || 'User'}
-          balance={displayBalance}
-          displayCurrency={displayCurrency}
-          onBack={() => setShowProfile(false)}
-          language={language}
-        />
-      ) : showNumberModal ? (
-        <NumberModal
-          language={language}
-          country={selectedCountry}
-          selectedCrypto={selectedCrypto}
-          displayCurrency={displayCurrency}
-          onClose={() => setShowNumberModal(false)}
-          setShowPurchaseResult={setShowPurchaseResult}
-          setPurchaseData={setPurchaseData}
-          lastSelectedResource={lastSelectedResource}
-          setShowProfile={setShowProfile}
-        />
-      ) : showCountryList ? (
-        <CountryList
-          language={language}
-          onBack={() => setShowCountryList(false)}
-          selectedCrypto={selectedCrypto}
-          displayCurrency={displayCurrency}
-          setShowPurchaseResult={setShowPurchaseResult}
-          setPurchaseData={setPurchaseData}
-          lastSelectedResource={lastSelectedResource}
-          onSelectCountry={handleBuyNumber}
-        />
-      ) : showSettings ? (
-        <Settings
-          language={language}
-          onBack={() => setShowSettings(false)}
-          onSelectLanguage={handleSelectLanguage}
-          onSelectCurrency={handleSelectCurrency}
-        />
-      ) : (
-        <div className="p-4 max-w-md mx-auto">
-          <div className="flex justify-end mb-4">
-            <button
-              className="text-lg font-semibold text-blue-500"
-              onClick={() => setShowProfile(true)}
-            >
-              {user?.first_name || 'User'}
-            </button>
-          </div>
-          <h1 className="text-2xl font-bold text-center mb-2">
-            {texts[language].title}
-          </h1>
-          <p className="text-center text-gray-600 mb-6">
-            {texts[language].subtitle}
-          </p>
-          <div className="flex flex-col gap-4">
-            <button
-              className="bg-blue-500 text-white px-4 py-2 rounded"
-              onClick={() => setShowCountryList(true)}
-            >
-              {texts[language].buy}
-            </button>
-            <button
-              className="bg-gray-500 text-white px-4 py-2 rounded"
-              onClick={() => setShowPurchaseHistory(true)}
-            >
-              {texts[language].purchases}
-            </button>
-          </div>
-        </div>
-      )}
-      <BottomNav
-        language={language}
-        onHome={() => {
-          setShowProfile(false);
-          setShowPurchaseHistory(false);
-          setShowCountryList(false);
-          setShowNumberModal(false);
-          setShowPurchaseResult(false);
-          setShowSettings(false);
-        }}
-        onSettings={() => {
-          setShowProfile(false);
-          setShowPurchaseHistory(false);
-          setShowCountryList(false);
-          setShowNumberModal(false);
-          setShowPurchaseResult(false);
-          setShowSettings(true);
-        }}
-        onHistory={() => {
-          setShowProfile(false);
-          setShowPurchaseHistory(true);
-          setShowCountryList(false);
-          setShowNumberModal(false);
-          setShowPurchaseResult(false);
-          setShowSettings(false);
-          setRefreshPurchases(true);
-        }}
-        onProfile={() => {
-          setShowProfile(true);
-          setShowPurchaseHistory(false);
-          setShowCountryList(false);
-          setShowNumberModal(false);
-          setShowPurchaseResult(false);
-          setShowSettings(false);
-        }}
-      />
-    </div>
-  );
+    console.log('MongoDB connected');
+  } catch (err) {
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
+  }
 }
 
-export default App;
+module.exports = { connectDB, mongoose, User, Purchase, Transaction };
 
 
 
@@ -484,104 +59,103 @@ export default App;
 
 
 
-Routes.js:
+
+wallet.js:
+const { BIP32Factory } = require('bip32');
+const ecc = require('@bitcoin-js/tiny-secp256k1-asmjs');
+const bitcoin = require('bitcoinjs-lib');
+const { mnemonicToSeedSync } = require('bip39');
+const { ethers } = require('ethers');
+
+const bip32 = BIP32Factory(ecc);
+
+// Поддерживаемые криптовалюты и их пути деривации (BIP-44)
+const COIN_TYPES = {
+  BTC: 0,
+  ETH: 60,
+  USDT: 60, // USDT на Ethereum
+  LTC: 2,
+  BNB: 60, // BNB на Binance Smart Chain
+  AVAX: 60, // AVAX на Avalanche C-Chain
+  ADA: 1815,
+  SOL: 501,
+};
+
+// Функция для генерации адреса
+async function generateAddress(telegram_id, crypto) {
+  try {
+    const seed = mnemonicToSeedSync(process.env.SEED_PHRASE);
+    const root = bip32.fromSeed(seed);
+    const coinType = COIN_TYPES[crypto] || 0;
+    const walletIndex = parseInt(telegram_id, 10) % 1000000; // Уникальный индекс на основе telegram_id
+    const path = `m/44'/${coinType}'/0'/0/${walletIndex}`;
+
+    if (crypto === 'BTC') {
+      const child = root.derivePath(path);
+      const { address } = bitcoin.payments.p2wpkh({
+        pubkey: child.publicKey,
+        network: bitcoin.networks.bitcoin,
+      });
+      console.log(`Generated BTC address for ${telegram_id}: ${address}`);
+      return address;
+    } else if (crypto === 'ETH' || crypto === 'USDT' || crypto === 'BNB' || crypto === 'AVAX') {
+      const child = root.derivePath(path);
+      const wallet = new ethers.Wallet(child.privateKey);
+      const address = wallet.address;
+      console.log(`Generated ${crypto} address for ${telegram_id}: ${address}`);
+      return address;
+    } else if (crypto === 'LTC') {
+      const child = root.derivePath(path);
+      const { address } = bitcoin.payments.p2wpkh({
+        pubkey: child.publicKey,
+        network: {
+          messagePrefix: '\x19Litecoin Signed Message:\n',
+          bech32: 'ltc',
+          bip32: { public: 0x019da462, private: 0x019d9cfe },
+          pubKeyHash: 0x30,
+          scriptHash: 0x32,
+          wif: 0xb0,
+        },
+      });
+      console.log(`Generated LTC address for ${telegram_id}: ${address}`);
+      return address;
+    } else if (crypto === 'ADA' || crypto === 'SOL') {
+      console.warn(`Address generation for ${crypto} not fully implemented`);
+      return `mock-${crypto}-address-${telegram_id}`;
+    } else {
+      throw new Error(`Unsupported cryptocurrency: ${crypto}`);
+    }
+  } catch (err) {
+    console.error(`Generate address error for ${crypto}:`, err.message);
+    throw err;
+  }
+}
+
+// Функция для получения баланса (заглушка)
+async function getBalance(address) {
+  console.log(`Fetching balance for address: ${address}`);
+  return 0; // Заменить на реальный вызов API
+}
+
+module.exports = { generateAddress, getBalance };
+
+
+
+
+
+
+
+
+
+routes.js:
 const express = require('express');
-const { User, Purchase } = require('./db');
+const { User, Purchase, Transaction } = require('./db');
 const { generateAddress, getBalance } = require('./wallet');
 const axios = require('axios');
 
 const router = express.Router();
 
-const countries = [
-  { id: 'us', name_en: 'United States', name_ru: 'США' },
-  { id: 'ru', name_en: 'Russia', name_ru: 'Россия' },
-  { id: 'uk', name_en: 'United Kingdom', name_ru: 'Великобритания' },
-  { id: 'fr', name_en: 'France', name_ru: 'Франция' },
-  { id: 'de', name_en: 'Germany', name_ru: 'Германия' },
-  { id: 'it', name_en: 'Italy', name_ru: 'Италия' },
-  { id: 'es', name_en: 'Spain', name_ru: 'Испания' },
-  { id: 'cn', name_en: 'China', name_ru: 'Китай' },
-  { id: 'jp', name_en: 'Japan', name_ru: 'Япония' },
-  { id: 'in', name_en: 'India', name_ru: 'Индия' },
-  { id: 'br', name_en: 'Brazil', name_ru: 'Бразилия' },
-  { id: 'ca', name_en: 'Canada', name_ru: 'Канада' },
-  { id: 'au', name_en: 'Australia', name_ru: 'Австралия' },
-  { id: 'za', name_en: 'South Africa', name_ru: 'Южная Африка' },
-  { id: 'mx', name_en: 'Mexico', name_ru: 'Мексика' },
-  { id: 'ar', name_en: 'Argentina', name_ru: 'Аргентина' },
-  { id: 'cl', name_en: 'Chile', name_ru: 'Чили' },
-  { id: 'co', name_en: 'Colombia', name_ru: 'Колумбия' },
-  { id: 'pe', name_en: 'Peru', name_ru: 'Перу' },
-  { id: 've', name_en: 'Venezuela', name_ru: 'Венесуэла' },
-  { id: 'eg', name_en: 'Egypt', name_ru: 'Египет' },
-  { id: 'ng', name_en: 'Nigeria', name_ru: 'Нигерия' },
-  { id: 'ke', name_en: 'Kenya', name_ru: 'Кения' },
-  { id: 'gh', name_en: 'Ghana', name_ru: 'Гана' },
-  { id: 'dz', name_en: 'Algeria', name_ru: 'Алжир' },
-  { id: 'ma', name_en: 'Morocco', name_ru: 'Марокко' },
-  { id: 'sa', name_en: 'Saudi Arabia', name_ru: 'Саудовская Аравия' },
-  { id: 'ae', name_en: 'United Arab Emirates', name_ru: 'ОАЭ' },
-  { id: 'tr', name_en: 'Turkey', name_ru: 'Турция' },
-  { id: 'pl', name_en: 'Poland', name_ru: 'Польша' },
-  { id: 'ua', name_en: 'Ukraine', name_ru: 'Украина' },
-  { id: 'by', name_en: 'Belarus', name_ru: 'Беларусь' },
-  { id: 'kz', name_en: 'Kazakhstan', name_ru: 'Казахстан' },
-  { id: 'uz', name_en: 'Uzbekistan', name_ru: 'Узбекистан' },
-  { id: 'ge', name_en: 'Georgia', name_ru: 'Грузия' },
-  { id: 'am', name_en: 'Armenia', name_ru: 'Армения' },
-  { id: 'az', name_en: 'Azerbaijan', name_ru: 'Азербайджан' },
-  { id: 'id', name_en: 'Indonesia', name_ru: 'Индонезия' },
-  { id: 'th', name_en: 'Thailand', name_ru: 'Таиланд' },
-  { id: 'vn', name_en: 'Vietnam', name_ru: 'Вьетнам' },
-  { id: 'ph', name_en: 'Philippines', name_ru: 'Филиппины' },
-  { id: 'my', name_en: 'Malaysia', name_ru: 'Малайзия' },
-  { id: 'sg', name_en: 'Singapore', name_ru: 'Сингапур' },
-  { id: 'kr', name_en: 'South Korea', name_ru: 'Южная Корея' },
-  { id: 'pk', name_en: 'Pakistan', name_ru: 'Пакистан' },
-  { id: 'bd', name_en: 'Bangladesh', name_ru: 'Бангладеш' },
-  { id: 'lk', name_en: 'Sri Lanka', name_ru: 'Шри-Ланка' },
-  { id: 'np', name_en: 'Nepal', name_ru: 'Непал' },
-  { id: 'mm', name_en: 'Myanmar', name_ru: 'Мьянма' },
-  { id: 'kh', name_en: 'Cambodia', name_ru: 'Камбоджа' },
-  { id: 'la', name_en: 'Laos', name_ru: 'Лаос' },
-  { id: 'se', name_en: 'Sweden', name_ru: 'Швеция' },
-  { id: 'no', name_en: 'Norway', name_ru: 'Норвегия' },
-  { id: 'fi', name_en: 'Finland', name_ru: 'Финляндия' },
-  { id: 'dk', name_en: 'Denmark', name_ru: 'Дания' },
-  { id: 'nl', name_en: 'Netherlands', name_ru: 'Нидерланды' },
-  { id: 'be', name_en: 'Belgium', name_ru: 'Бельгия' },
-  { id: 'at', name_en: 'Austria', name_ru: 'Австрия' },
-  { id: 'ch', name_en: 'Switzerland', name_ru: 'Швейцария' },
-  { id: 'gr', name_en: 'Greece', name_ru: 'Греция' },
-  { id: 'pt', name_en: 'Portugal', name_ru: 'Португалия' },
-  { id: 'ie', name_en: 'Ireland', name_ru: 'Ирландия' },
-  { id: 'cz', name_en: 'Czech Republic', name_ru: 'Чехия' },
-  { id: 'sk', name_en: 'Slovakia', name_ru: 'Словакия' },
-  { id: 'hu', name_en: 'Hungary', name_ru: 'Венгрия' },
-  { id: 'ro', name_en: 'Romania', name_ru: 'Румыния' },
-  { id: 'bg', name_en: 'Bulgaria', name_ru: 'Болгария' },
-  { id: 'hr', name_en: 'Croatia', name_ru: 'Хорватия' },
-  { id: 'rs', name_en: 'Serbia', name_ru: 'Сербия' },
-  { id: 'ba', name_en: 'Bosnia and Herzegovina', name_ru: 'Босния и Герцеговина' },
-];
-
-const resources = [
-  { id: 'other', name_en: 'Other', name_ru: 'Другой' },
-  { id: 'whatsapp', name_en: 'WhatsApp', name_ru: 'WhatsApp' },
-  { id: 'telegram', name_en: 'Telegram', name_ru: 'Telegram' },
-  { id: 'instagram', name_en: 'Instagram', name_ru: 'Instagram' },
-  { id: 'facebook', name_en: 'Facebook', name_ru: 'Facebook' },
-  { id: 'viber', name_en: 'Viber', name_ru: 'Viber' },
-  { id: 'skype', name_en: 'Skype', name_ru: 'Skype' },
-  { id: 'wechat', name_en: 'WeChat', name_ru: 'WeChat' },
-  { id: 'snapchat', name_en: 'Snapchat', name_ru: 'Snapchat' },
-  { id: 'tiktok', name_en: 'TikTok', name_ru: 'TikTok' },
-  { id: 'discord', name_en: 'Discord', name_ru: 'Discord' },
-  { id: 'twitter', name_en: 'Twitter', name_ru: 'Twitter' },
-  { id: 'linkedin', name_en: 'LinkedIn', name_ru: 'LinkedIn' },
-  { id: 'vk', name_en: 'VK', name_ru: 'ВКонтакте' },
-  { id: 'gmail', name_en: 'Gmail', name_ru: 'Gmail' },
-];
+const SUPPORTED_CRYPTOS = ['BTC', 'USDT', 'LTC', 'ETH', 'BNB', 'AVAX', 'ADA', 'SOL'];
 
 let ratesCache = {
   timestamp: 0,
@@ -596,8 +170,6 @@ let ratesCache = {
     sol: { usd: 0, rub: 0 },
   },
 };
-
-const SUPPORTED_CRYPTOS = ['BTC', 'USDT', 'LTC', 'ETH', 'BNB', 'AVAX', 'ADA', 'SOL'];
 
 const fetchCryptoRates = async () => {
   const start = Date.now();
@@ -632,79 +204,45 @@ const fetchCryptoRates = async () => {
   }
 };
 
-router.get('/countries', (req, res) => {
-  const start = Date.now();
-  res.json(countries);
-  console.log('Countries fetched, time:', Date.now() - start, 'ms');
-});
-
-router.get('/resources', async (req, res) => {
-  const start = Date.now();
-  const language = req.query.language || 'ru';
-  try {
-    const rates = await fetchCryptoRates();
-    console.log('Returning rates for /resources:', rates);
-    res.json({
-      services: resources.map((resource) => ({
-        id: resource.id,
-        name: language === 'ru' ? resource.name_ru : resource.name_en,
-      })),
-      rates,
-    });
-    console.log('Resources fetched, time:', Date.now() - start, 'ms');
-  } catch (err) {
-    console.error('Fetch resources error:', err.message);
-    res.status(500).json({ error: 'Server error' });
-    console.log('Resources fetch failed, time:', Date.now() - start, 'ms');
-  }
-});
-
 router.post('/generate-address/:telegram_id', async (req, res) => {
   const start = Date.now();
   const { telegram_id } = req.params;
   const { crypto } = req.body;
-  console.log('Raw request body:', req.body);
   try {
     if (!crypto || !SUPPORTED_CRYPTOS.includes(crypto)) {
-      console.warn('Invalid crypto:', { crypto, supported: SUPPORTED_CRYPTOS });
       res.status(400).json({ error: `Invalid cryptocurrency: ${crypto || 'undefined'}` });
       console.log('Invalid crypto error, time:', Date.now() - start, 'ms');
       return;
     }
-    console.log('Generate address request:', { telegram_id, crypto });
     let user = await User.findOne({ telegram_id });
     let addresses = user?.addresses || {};
     const rates = await fetchCryptoRates();
     const rate = rates[crypto.toLowerCase()]?.[user?.display_currency.toLowerCase() || 'rub'] || 0;
-    
-    if (!user || user.crypto !== crypto || !addresses[crypto]) {
+
+    if (!user || !addresses[crypto]) {
       const address = await generateAddress(telegram_id, crypto);
       addresses[crypto] = address;
-      if (user) {
-        user.addresses = addresses;
-        user.crypto = crypto;
-        await user.save();
-        console.log('New address generated:', { address, crypto, rate });
-        res.json({ address, rate });
-      } else {
-        const index = Math.floor(Math.random() * 1000000);
+      if (!user) {
         user = await User.create({
           telegram_id,
-          wallet_index: index,
-          address,
+          wallet_index: parseInt(telegram_id, 10) % 1000000,
           addresses: { [crypto]: address },
-          balance: 1.0,
+          balance: 0,
           crypto,
           language: 'ru',
           display_currency: 'RUB',
           last_selected_resource: 'other',
         });
-        console.log('New user created with address:', { address, crypto, rate });
-        res.json({ address, rate });
+      } else {
+        user.addresses = addresses;
+        user.crypto = crypto;
+        await user.save();
       }
+      res.json({ address, rate });
+      console.log('New address generated:', { address, crypto, rate });
     } else {
-      console.log('Returning cached address:', { address: addresses[crypto], crypto, rate });
       res.json({ address: addresses[crypto], rate });
+      console.log('Returning cached address:', { address: addresses[crypto], crypto, rate });
     }
     console.log('Generate address completed, time:', Date.now() - start, 'ms');
   } catch (err) {
@@ -735,7 +273,7 @@ router.get('/balance/:telegram_id', async (req, res) => {
     }
     const addresses = user.addresses || {};
     const address = addresses[crypto || user.crypto] || '';
-    const balance = user.balance !== undefined ? user.balance : (await getBalance(address)) || 0;
+    const balance = user.balance || 0;
     const rates = await fetchCryptoRates();
     const rate = rates[crypto?.toLowerCase() || user.crypto?.toLowerCase()]?.[user.display_currency.toLowerCase()] || 1;
     const display_balance = (balance * rate).toFixed(2);
@@ -756,77 +294,6 @@ router.get('/balance/:telegram_id', async (req, res) => {
   }
 });
 
-router.post('/buy', async (req, res) => {
-  const start = Date.now();
-  const { telegram_id, country, resource } = req.body;
-  try {
-    const user = await User.findOne({ telegram_id });
-    if (!user || (user.balance !== undefined && user.balance < 0.0001)) {
-      res.json({ success: false, error: user?.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds' });
-      console.log('Buy failed (insufficient funds), time:', Date.now() - start, 'ms');
-      return;
-    }
-    const code = `SMS-${Math.random().toString(36).slice(2, 8)}`;
-    await Purchase.create({
-      telegram_id,
-      country,
-      resource,
-      code,
-      status: 'active',
-      service_type: 'sms',
-    });
-    user.balance = (user.balance || 1.0) - 0.0001;
-    user.last_selected_resource = resource;
-    await user.save();
-    res.json({ success: true, code });
-    console.log('Buy completed, time:', Date.now() - start, 'ms');
-  } catch (err) {
-    console.error('Buy error:', err.message);
-    res.status(500).json({ error: 'Server error' });
-    console.log('Buy failed, time:', Date.now() - start, 'ms');
-  }
-});
-
-router.post('/select-crypto/:telegram_id', async (req, res) => {
-  const start = Date.now();
-  const { telegram_id } = req.params;
-  const { crypto } = req.body;
-  console.log('Raw request body for select-crypto:', req.body);
-  try {
-    if (!crypto || !SUPPORTED_CRYPTOS.includes(crypto)) {
-      console.warn('Invalid crypto in select-crypto:', { crypto, supported: SUPPORTED_CRYPTOS });
-      res.status(400).json({ error: `Invalid cryptocurrency: ${crypto || 'undefined'}` });
-      console.log('Select crypto failed (invalid crypto), time:', Date.now() - start, 'ms');
-      return;
-    }
-    let user = await User.findOne({ telegram_id });
-    if (!user) {
-      const index = Math.floor(Math.random() * 1000000);
-      user = await User.create({
-        telegram_id,
-        wallet_index: index,
-        address: '',
-        addresses: {},
-        balance: 1.0,
-        crypto,
-        language: 'ru',
-        display_currency: 'RUB',
-        last_selected_resource: 'other',
-      });
-    } else {
-      user.crypto = crypto;
-      await user.save();
-    }
-    console.log('Crypto selected:', { telegram_id, crypto });
-    res.json({ success: true, crypto });
-    console.log('Select crypto completed, time:', Date.now() - start, 'ms');
-  } catch (err) {
-    console.error('Select crypto error:', err.message);
-    res.status(500).json({ error: 'Server error' });
-    console.log('Select crypto failed, time:', Date.now() - start, 'ms');
-  }
-});
-
 router.post('/set-language/:telegram_id', async (req, res) => {
   const start = Date.now();
   const { telegram_id } = req.params;
@@ -835,13 +302,11 @@ router.post('/set-language/:telegram_id', async (req, res) => {
     let user = await User.findOne({ telegram_id });
     const display_currency = language === 'ru' ? 'RUB' : 'USD';
     if (!user) {
-      const index = Math.floor(Math.random() * 1000000);
       user = await User.create({
         telegram_id,
-        wallet_index: index,
-        address: '',
+        wallet_index: parseInt(telegram_id, 10) % 1000000,
         addresses: {},
-        balance: 1.0,
+        balance: 0,
         crypto: 'BTC',
         language,
         display_currency,
@@ -873,13 +338,11 @@ router.post('/set-currency/:telegram_id', async (req, res) => {
     }
     let user = await User.findOne({ telegram_id });
     if (!user) {
-      const index = Math.floor(Math.random() * 1000000);
       user = await User.create({
         telegram_id,
-        wallet_index: index,
-        address: '',
+        wallet_index: parseInt(telegram_id, 10) % 1000000,
         addresses: {},
-        balance: 1.0,
+        balance: 0,
         crypto: 'BTC',
         language: 'ru',
         display_currency: currency,
@@ -898,177 +361,351 @@ router.post('/set-currency/:telegram_id', async (req, res) => {
   }
 });
 
-router.post('/buy-number', async (req, res) => {
-  const start = Date.now();
-  const { telegram_id, country, service, currency, resource } = req.body;
-  console.log('Buy number request:', { telegram_id, country, service, currency, resource });
-  try {
-    let user = await User.findOne({ telegram_id });
-    if (!user) {
-      const index = Math.floor(Math.random() * 1000000);
-      user = await User.create({
-        telegram_id,
-        wallet_index: index,
-        address: '',
-        addresses: {},
-        balance: 1.0,
-        crypto: currency || 'BTC',
-        language: 'ru',
-        display_currency: 'RUB',
-        last_selected_resource: resource || 'other',
-      });
-    }
-    user.last_selected_resource = resource || user.last_selected_resource;
-    await user.save();
-    await processPurchase(user, telegram_id, country, service, currency, resource, res);
-    console.log('Buy number completed, time:', Date.now() - start, 'ms');
-  } catch (err) {
-    console.error('Buy number error:', err.message);
-    res.status(500).json({ error: 'Server error' });
-    console.log('Buy number failed, time:', Date.now() - start, 'ms');
-  }
-});
-
-router.get('/purchases/:telegram_id', async (req, res) => {
+router.get('/check-transaction/:telegram_id', async (req, res) => {
   const start = Date.now();
   const { telegram_id } = req.params;
+  const { crypto } = req.query;
   try {
     const user = await User.findOne({ telegram_id });
-    const purchases = await Purchase.find({ telegram_id }).sort({ created_at: -1 });
-    console.log('Purchases fetched:', purchases);
-    const rates = await fetchCryptoRates();
-    const formattedPurchases = purchases.map((purchase) => {
-      console.log('Formatting purchase:', purchase);
-      const [priceValue, crypto] = purchase.price.split(' ');
-      const rate = rates[crypto?.toLowerCase()]?.[user.display_currency.toLowerCase()] || 1;
-      const display_price = (parseFloat(priceValue) * rate).toFixed(2);
-      return {
-        id: purchase._id,
-        telegram_id: purchase.telegram_id,
-        country: countries.find((c) => c.id === purchase.country) || {
-          id: purchase.country,
-          name_en: purchase.country,
-          name_ru: purchase.country,
-        },
-        service: purchase.resource,
-        service_type: purchase.service_type,
-        code: purchase.code,
-        number: purchase.number || `+${Math.floor(10000000000 + Math.random() * 90000000000)}`,
-        price: purchase.price,
-        display_price: `${display_price} ${user.display_currency}`,
-        created_at: purchase.created_at.toISOString(),
-        status: purchase.status,
-      };
-    });
-    res.json(formattedPurchases);
-    console.log('Purchases fetched, time:', Date.now() - start, 'ms');
+    if (!user || !user.addresses[crypto]) {
+      res.json({ status: 'No address found' });
+      console.log('Check transaction failed (no address), time:', Date.now() - start, 'ms');
+      return;
+    }
+    if (crypto === 'BTC') {
+      const address = user.addresses[crypto];
+      try {
+        const response = await axios.get(`https://blockchain.info/rawaddr/${address}`);
+        const transactions = response.data.txs || [];
+        for (const tx of transactions) {
+          let amount = 0;
+          for (const output of tx.out) {
+            if (output.addr === address) {
+              amount += output.value / 100000000; // Конвертация из сатоши в BTC
+            }
+          }
+          if (amount > 0) {
+            const existingTx = await Transaction.findOne({ txid: tx.hash });
+            if (!existingTx) {
+              await Transaction.create({
+                telegram_id,
+                crypto,
+                address,
+                amount,
+                txid: tx.hash,
+                status: tx.block_height ? 'confirmed' : 'pending',
+              });
+              user.balance = (user.balance || 0) + amount;
+              await user.save();
+              console.log(`New transaction recorded: ${tx.hash}, amount: ${amount} ${crypto}`);
+            }
+          }
+        }
+        const pendingTxs = await Transaction.find({ telegram_id, crypto, status: 'pending' });
+        const confirmedTxs = await Transaction.find({ telegram_id, crypto, status: 'confirmed' });
+        res.json({
+          status: pendingTxs.length > 0 ? 'Pending transactions found' : 'No pending transactions',
+          transactions: [...pendingTxs, ...confirmedTxs].map(tx => ({
+            txid: tx.txid,
+            amount: tx.amount,
+            status: tx.status,
+            created_at: tx.created_at,
+          })),
+        });
+      } catch (apiErr) {
+        console.error('Blockchain API error:', apiErr.message);
+        res.json({ status: 'Error checking transactions' });
+      }
+    } else {
+      res.json({ status: `Transaction check not implemented for ${crypto}` });
+    }
+    console.log('Check transaction completed, time:', Date.now() - start, 'ms');
   } catch (err) {
-    console.error('Fetch purchases error:', err.message);
+    console.error('Check transaction error:', err.message);
     res.status(500).json({ error: 'Server error' });
-    console.log('Purchases fetch failed, time:', Date.now() - start, 'ms');
+    console.log('Check transaction failed, time:', Date.now() - start, 'ms');
   }
 });
 
-router.post('/complete-purchase/:purchase_id', async (req, res) => {
-  const start = Date.now();
-  const { purchase_id } = req.params;
-  try {
-    const purchase = await Purchase.findById(purchase_id);
-    if (!purchase) {
-      res.status(400).json({ error: 'Purchase not found' });
-      console.log('Complete purchase failed (not found), time:', Date.now() - start, 'ms');
-      return;
-    }
-    if (purchase.status === 'completed') {
-      res.json({ success: false, error: 'Purchase already completed' });
-      console.log('Complete purchase failed (already completed), time:', Date.now() - start, 'ms');
-      return;
-    }
-    purchase.status = 'completed';
-    await purchase.save();
-    console.log('Purchase completed:', purchase);
-    res.json({ success: true });
-    console.log('Complete purchase completed, time:', Date.now() - start, 'ms');
-  } catch (err) {
-    console.error('Complete purchase error:', err.message);
-    res.status(500).json({ error: 'Server error' });
-    console.log('Complete purchase failed, time:', Date.now() - start, 'ms');
-  }
-});
-
-async function processPurchase(user, telegram_id, country, service, currency, resource, res) {
-  const start = Date.now();
-  console.log('Processing purchase:', { telegram_id, country, service, currency, resource });
-  const addresses = user.addresses || {};
-  const address = addresses[currency] || '';
-  const balance = user.balance !== undefined ? user.balance : (await getBalance(address)) || 0;
-  const priceInCrypto = {
-    sms: 0.012,
-    call: 0.020,
-    rent: 5,
-  }[service] || 0.012;
-  const rates = {
-    USDT: 1,
-    BTC: 0.000015,
-    LTC: 0.012,
-    ETH: 0.00033,
-    BNB: 0.0017,
-    AVAX: 0.028,
-    ADA: 2.2,
-    SOL: 0.0067,
-  };
-  const cryptoPrice = (priceInCrypto * (rates[currency] || 1)).toFixed(8);
-  const cryptoRates = await fetchCryptoRates();
-  const fiatRate = cryptoRates[currency.toLowerCase()]?.[user.display_currency.toLowerCase()] || 1;
-  const displayPrice = (parseFloat(cryptoPrice) * fiatRate).toFixed(2);
-  if (isNaN(balance) || balance < parseFloat(cryptoPrice)) {
-    console.log('Insufficient funds:', { balance, cryptoPrice });
-    res.json({ success: false, error: user.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds' });
-    console.log('Process purchase failed (insufficient funds), time:', Date.now() - start, 'ms');
-    return;
-  }
-  const number = `+${Math.floor(10000000000 + Math.random() * 90000000000)}`;
-  const code = service === 'sms' ? `CODE-${Math.random().toString(36).slice(2, 8 Beeswax)}` : null;
-  const last4 = service === 'call' ? number.slice(-4) : null;
-  const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  try {
-    const purchase = await Purchase.create({
-      telegram_id,
-      country,
-      resource: resource || service,
-      code: code || number,
-      number,
-      price: `${cryptoPrice} ${currency}`,
-      service_type: service,
-      status: 'active',
-      created_at: new Date(),
-    });
-    console.log('Purchase created:', purchase);
-    user.balance = (user.balance || 1.0) - parseFloat(cryptoPrice);
-    user.last_selected_resource = resource || user.last_selected_resource;
-    await user.save();
-    console.log('Balance updated:', { telegram_id, newBalance: user.balance });
-    res.json({
-      success: true,
-      number,
-      last4,
-      expiry,
-      price: `${cryptoPrice} ${currency}`,
-      display_price: `${displayPrice} ${user.display_currency}`,
-      country: countries.find((c) => c.id === country) || { id: country, name_en: country, name_ru: country },
-      service,
-      resource,
-      purchase_id: purchase._id,
-    });
-    console.log('Process purchase completed, time:', Date.now() - start, 'ms');
-  } catch (err) {
-    console.error('Process purchase error:', err.message);
-    res.status(500).json({ error: 'Server error' });
-    console.log('Process purchase failed, time:', Date.now() - start, 'ms');
-  }
-}
+// Другие маршруты (countries, resources, buy, buy-number, purchases, complete-purchase)
+// остаются без изменений из предыдущей версии
 
 module.exports = router;
+
+
+
+
+
+
+
+
+BalanceModal.js:
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import { QRCodeCanvas } from 'qrcode.react';
+import { useTelegram } from '../telegram';
+
+function BalanceModal({ balance, displayCurrency, onClose, language }) {
+  const { tg, user } = useTelegram();
+  const [selectedCrypto, setSelectedCrypto] = useState('BTC');
+  const [address, setAddress] = useState('');
+  const [transactionStatus, setTransactionStatus] = useState('');
+  const [transactions, setTransactions] = useState([]);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  const cryptos = ['BTC', 'USDT', 'LTC', 'ETH', 'BNB', 'AVAX', 'ADA', 'SOL'];
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchAddress();
+      checkTransaction();
+    }
+  }, [selectedCrypto, user]);
+
+  const fetchAddress = async () => {
+    try {
+      const res = await axios.post(
+        `${API_URL}/generate-address/${user.id}`,
+        { crypto: selectedCrypto },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      console.log('Generate address response:', res.data);
+      setAddress(res.data.address);
+    } catch (err) {
+      console.error('Fetch address error:', err.response?.data || err.message);
+      setAddress('');
+    }
+  };
+
+  const checkTransaction = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/check-transaction/${user.id}?crypto=${selectedCrypto}`, {
+        headers: {
+          'telegram-init-data': tg?.initData || '',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      setTransactionStatus(res.data.status || 'No transactions found');
+      setTransactions(res.data.transactions || []);
+    } catch (err) {
+      console.error('Check transaction error:', err.response?.data || err.message);
+      setTransactionStatus('Error checking transaction');
+    }
+  };
+
+  const copyAddress = () => {
+    navigator.clipboard.writeText(address);
+    tg?.showAlert(language === 'ru' ? 'Адрес скопирован!' : 'Address copied!');
+  };
+
+  const texts = {
+    ru: {
+      title: 'Пополнить баланс',
+      selectCrypto: 'Выберите криптовалюту',
+      address: 'Адрес для пополнения',
+      copy: 'Скопировать адрес',
+      check: 'Проверить транзакцию',
+      close: 'Закрыть',
+      transactions: 'Транзакции',
+      amount: 'Сумма',
+      status: 'Статус',
+      date: 'Дата',
+    },
+    en: {
+      title: 'Top Up Balance',
+      selectCrypto: 'Select Cryptocurrency',
+      address: 'Deposit Address',
+      copy: 'Copy Address',
+      check: 'Check Transaction',
+      close: 'Close',
+      transactions: 'Transactions',
+      amount: 'Amount',
+      status: 'Status',
+      date: 'Date',
+    },
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+      <div className="bg-white p-4 rounded-lg max-w-sm w-full">
+        <h2 className="text-xl font-bold mb-4">{texts[language].title}</h2>
+        <p className="mb-2">{texts[language].selectCrypto}:</p>
+        <select
+          className="w-full bg-gray-200 p-2 rounded mb-4"
+          value={selectedCrypto}
+          onChange={(e) => setSelectedCrypto(e.target.value)}
+        >
+          {cryptos.map((crypto) => (
+            <option key={crypto} value={crypto}>
+              {crypto}
+            </option>
+          ))}
+        </select>
+        {address ? (
+          <div className="text-center">
+            <p className="mb-2">{texts[language].address}:</p>
+            <p className="text-sm break-all mb-4">{address}</p>
+            <div className="flex justify-center mb-4">
+              <QRCodeCanvas value={address} size={128} />
+            </div>
+            <button
+              className="w-full bg-blue-500 text-white px-4 py-2 rounded mb-2"
+              onClick={copyAddress}
+            >
+              {texts[language].copy}
+            </button>
+            <button
+              className="w-full bg-gray-500 text-white px-4 py-2 rounded mb-2"
+              onClick={checkTransaction}
+            >
+              {texts[language].check}
+            </button>
+          </div>
+        ) : (
+          <p className="text-center mb-4">
+            {language === 'ru' ? 'Загрузка адреса...' : 'Loading address...'}
+          </p>
+        )}
+        <p className="text-center mb-4">
+          {language === 'ru' ? 'Баланс' : 'Balance'}: {balance} {displayCurrency}
+        </p>
+        <p className="text-center mb-4">{transactionStatus}</p>
+        {transactions.length > 0 && (
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold">{texts[language].transactions}</h3>
+            <ul className="text-sm">
+              {transactions.map((tx) => (
+                <li key={tx.txid} className="mb-2">
+                  <p>
+                    {texts[language].amount}: {tx.amount} {selectedCrypto}
+                  </p>
+                  <p>
+                    {texts[language].status}: {tx.status}
+                  </p>
+                  <p>
+                    {texts[language].date}: {new Date(tx.created_at).toLocaleString()}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <button
+          className="w-full bg-red-500 text-white px-4 py-2 rounded"
+          onClick={onClose}
+        >
+          {texts[language].close}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default BalanceModal;
+
+
+
+
+
+
+
+
+Setting.js:
+import { useEffect } from 'react';
+import { useTelegram } from '../telegram';
+
+function Settings({ language, onBack, onSelectLanguage, onSelectCurrency }) {
+  const { tg } = useTelegram();
+
+  useEffect(() => {
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
+    }
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
+
+  const texts = {
+    ru: {
+      title: 'Настройки',
+      languageLabel: 'Язык',
+      currencyLabel: 'Валюта',
+    },
+    en: {
+      title: 'Settings',
+      languageLabel: 'Language',
+      currencyLabel: 'Currency',
+    },
+  };
+
+  const languages = [
+    { id: 'ru', name: 'Русский' },
+    { id: 'en', name: 'English' },
+  ];
+
+  const currencies = [
+    { id: 'RUB', name: 'RUB' },
+    { id: 'USD', name: 'USD' },
+  ];
+
+  const handleLanguageChange = (e) => {
+    onSelectLanguage(e.target.value);
+  };
+
+  const handleCurrencyChange = (e) => {
+    onSelectCurrency(e.target.value);
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto pb-16">
+      <h1 className="text-2xl font-bold mb-4">{texts[language].title}</h1>
+      <div className="flex flex-col gap-4">
+        <div>
+          <label className="block text-lg font-semibold mb-2">
+            {texts[language].languageLabel}
+          </label>
+          <select
+            className="w-full bg-gray-200 p-2 rounded"
+            value={language}
+            onChange={handleLanguageChange}
+          >
+            {languages.map((lang) => (
+              <option key={lang.id} value={lang.id}>
+                {lang.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-lg font-semibold mb-2">
+            {texts[language].currencyLabel}
+          </label>
+          <select
+            className="w-full bg-gray-200 p-2 rounded"
+            value={language === 'ru' ? 'RUB' : 'USD'}
+            onChange={handleCurrencyChange}
+          >
+            {currencies.map((currency) => (
+              <option key={currency.id} value={currency.id}>
+                {currency.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default Settings;
+
+
+
+
 
 
 
