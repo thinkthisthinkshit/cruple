@@ -1,3 +1,94 @@
+wallet.js:
+const { BIP32Factory } = require('bip32');
+const ecc = require('tiny-secp256k1');
+const bitcoin = require('bitcoinjs-lib');
+const { mnemonicToSeedSync } = require('bip39');
+const { ethers } = require('ethers');
+
+const bip32 = BIP32Factory(ecc);
+
+// Поддерживаемые криптовалюты и их пути деривации (BIP-44)
+const COIN_TYPES = {
+  BTC: 0,
+  ETH: 60,
+  USDT: 60, // USDT на Ethereum
+  LTC: 2,
+  BNB: 60, // BNB на Binance Smart Chain
+  AVAX: 60, // AVAX на Avalanche C-Chain
+  ADA: 1815,
+  SOL: 501,
+};
+
+// Функция для генерации адреса
+async function generateAddress(telegram_id, crypto) {
+  try {
+    const seed = mnemonicToSeedSync(process.env.SEED_PHRASE);
+    const root = bip32.fromSeed(seed);
+    const coinType = COIN_TYPES[crypto] || 0;
+    const walletIndex = parseInt(telegram_id, 10) % 1000000; // Уникальный индекс на основе telegram_id
+    const path = `m/44'/${coinType}'/0'/0/${walletIndex}`;
+
+    if (crypto === 'BTC') {
+      const child = root.derivePath(path);
+      const { address } = bitcoin.payments.p2wpkh({
+        pubkey: child.publicKey,
+        network: bitcoin.networks.bitcoin,
+      });
+      console.log(`Generated BTC address for ${telegram_id}: ${address}`);
+      return address;
+    } else if (crypto === 'ETH' || crypto === 'USDT' || crypto === 'BNB' || crypto === 'AVAX') {
+      const child = root.derivePath(path);
+      const wallet = new ethers.Wallet(child.privateKey);
+      const address = wallet.address;
+      console.log(`Generated ${crypto} address for ${telegram_id}: ${address}`);
+      return address;
+    } else if (crypto === 'LTC') {
+      const child = root.derivePath(path);
+      const { address } = bitcoin.payments.p2wpkh({
+        pubkey: child.publicKey,
+        network: {
+          messagePrefix: '\x19Litecoin Signed Message:\n',
+          bech32: 'ltc',
+          bip32: { public: 0x019da462, private: 0x019d9cfe },
+          pubKeyHash: 0x30,
+          scriptHash: 0x32,
+          wif: 0xb0,
+        },
+      });
+      console.log(`Generated LTC address for ${telegram_id}: ${address}`);
+      return address;
+    } else if (crypto === 'ADA' || crypto === 'SOL') {
+      console.warn(`Address generation for ${crypto} not fully implemented`);
+      return `mock-${crypto}-address-${telegram_id}`;
+    } else {
+      throw new Error(`Unsupported cryptocurrency: ${crypto}`);
+    }
+  } catch (err) {
+    console.error(`Generate address error for ${crypto}:`, err.message);
+    throw err;
+  }
+}
+
+// Функция для получения баланса (заглушка)
+async function getBalance(address) {
+  console.log(`Fetching balance for address: ${address}`);
+  return 0; // Заменить на реальный вызов API
+}
+
+module.exports = { generateAddress, getBalance };
+
+
+
+
+
+
+
+
+
+
+
+
+
 routes.js:
 const express = require('express');
 const { User, Purchase, Transaction } = require('./db');
