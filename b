@@ -1,3 +1,149 @@
+Settings.jsx:
+import { useEffect, useState } from 'react';
+import { useTelegram } from '../telegram';
+
+function Settings({ language, onBack, onSelectLanguage, onSelectCurrency }) {
+  const { tg } = useTelegram();
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [showCurrencyModal, setShowCurrencyModal] = useState(false);
+
+  useEffect(() => {
+    if (tg) {
+      tg.BackButton.show().onClick(onBack);
+    }
+    return () => tg?.BackButton.hide();
+  }, [tg, onBack]);
+
+  const texts = {
+    ru: {
+      title: 'Настройки',
+      languageAndCurrency: 'Язык и валюта',
+      currency: 'Валюта',
+      selectLanguage: 'Выберите язык',
+      selectCurrency: 'Выберите валюту',
+      close: 'Закрыть',
+    },
+    en: {
+      title: 'Settings',
+      languageAndCurrency: 'Language and Currency',
+      currency: 'Currency',
+      selectLanguage: 'Select Language',
+      selectCurrency: 'Select Currency',
+      close: 'Close',
+    },
+  };
+
+  const languages = [
+    { id: 'ru', name: 'Русский (RUB)', currency: 'RUB' },
+    { id: 'en', name: 'English (USD)', currency: 'USD' },
+  ];
+
+  const currencies = [
+    { id: 'RUB', name: 'RUB' },
+    { id: 'USD', name: 'USD' },
+  ];
+
+  const handleSelectLanguage = (lang) => {
+    onSelectLanguage(lang.id);
+    setShowLanguageModal(false);
+  };
+
+  const handleSelectCurrency = (currency) => {
+    onSelectCurrency(currency.id);
+    setShowCurrencyModal(false);
+  };
+
+  return (
+    <div className="p-4 max-w-md mx-auto pb-16">
+      <h1 className="text-2xl font-bold mb-4">{texts[language].title}</h1>
+      <div className="flex flex-col gap-4">
+        <button
+          className="w-full bg-gray-200 p-2 rounded text-left"
+          onClick={() => setShowLanguageModal(true)}
+        >
+          {texts[language].languageAndCurrency}
+        </button>
+        <button
+          className="w-full bg-gray-200 p-2 rounded text-left"
+          onClick={() => setShowCurrencyModal(true)}
+        >
+          {texts[language].currency}
+        </button>
+      </div>
+
+      {showLanguageModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+          onClick={() => setShowLanguageModal(false)}
+        >
+          <div
+            className="bg-white p-4 rounded-lg max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">{texts[language].selectLanguage}</h2>
+            <div className="flex flex-col gap-2 mb-4">
+              {languages.map((lang) => (
+                <button
+                  key={lang.id}
+                  className="w-full bg-gray-200 p-2 rounded text-left"
+                  onClick={() => handleSelectLanguage(lang)}
+                >
+                  {lang.name}
+                </button>
+              ))}
+            </div>
+            <button
+              className="w-full bg-gray-500 text-white px-4 py-2 rounded"
+              onClick={() => setShowLanguageModal(false)}
+            >
+              {texts[language].close}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showCurrencyModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
+          onClick={() => setShowCurrencyModal(false)}
+        >
+          <div
+            className="bg-white p-4 rounded-lg max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">{texts[language].selectCurrency}</h2>
+            <div className="flex flex-col gap-2 mb-4">
+              {currencies.map((currency) => (
+                <button
+                  key={currency.id}
+                  className="w-full bg-gray-200 p-2 rounded text-left"
+                  onClick={() => handleSelectCurrency(currency)}
+                >
+                  {currency.name}
+                </button>
+              ))}
+            </div>
+            <button
+              className="w-full bg-gray-500 text-white px-4 py-2 rounded"
+              onClick={() => setShowCurrencyModal(false)}
+            >
+              {texts[language].close}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default Settings;
+
+
+
+
+
+
+
 App.jsx:
 import { useState, useEffect } from 'react';
 import { useTelegram } from './telegram';
@@ -93,6 +239,24 @@ function App() {
       setDisplayCurrency(res.data.display_currency);
     } catch (err) {
       console.error('Set language error:', err.response?.data || err.message);
+    }
+  };
+
+  const handleSelectCurrency = async (currency) => {
+    try {
+      const res = await axios.post(
+        `${API_URL}/set-currency/${user.id}`,
+        { currency },
+        {
+          headers: {
+            'telegram-init-data': tg?.initData || '',
+            'ngrok-skip-browser-warning': 'true',
+          },
+        }
+      );
+      setDisplayCurrency(res.data.display_currency);
+    } catch (err) {
+      console.error('Set currency error:', err.response?.data || err.message);
     }
   };
 
@@ -238,6 +402,7 @@ function App() {
           language={language}
           onBack={() => setShowSettings(false)}
           onSelectLanguage={handleSelectLanguage}
+          onSelectCurrency={handleSelectCurrency}
         />
       ) : (
         <div className="p-4 max-w-md mx-auto">
@@ -313,381 +478,6 @@ function App() {
 
 export default App;
 
-
-
-
-
-Settings.js:
-import { useEffect } from 'react';
-import { useTelegram } from '../telegram';
-
-function Settings({ language, onBack, onSelectLanguage }) {
-  const { tg } = useTelegram();
-
-  useEffect(() => {
-    if (tg) {
-      tg.BackButton.show().onClick(onBack);
-    }
-    return () => tg?.BackButton.hide();
-  }, [tg, onBack]);
-
-  const texts = {
-    ru: {
-      title: 'Настройки',
-      selectLanguage: 'Выберите язык',
-    },
-    en: {
-      title: 'Settings',
-      selectLanguage: 'Select Language',
-    },
-  };
-
-  return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4">{texts[language].title}</h1>
-      <p className="text-sm text-gray-600 mb-2">{texts[language].selectLanguage}</p>
-      <div className="flex flex-col gap-2">
-        <button
-          className="w-full bg-gray-200 p-2 rounded text-left"
-          onClick={() => onSelectLanguage('ru')}
-        >
-          Русский (RUB)
-        </button>
-        <button
-          className="w-full bg-gray-200 p-2 rounded text-left"
-          onClick={() => onSelectLanguage('en')}
-        >
-          English (USD)
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default Settings;
-
-
-
-
-
-
-
-Profile.jsx:
-import { useState, useEffect } from 'react';
-import { useTelegram } from '../telegram';
-import BalanceModal from './BalanceModal';
-import axios from 'axios';
-
-function Profile({ username, balance, displayCurrency, onBack, language }) {
-  const { tg } = useTelegram();
-  const [showBalanceModal, setShowBalanceModal] = useState(false);
-  const [address, setAddress] = useState('');
-  const [cryptoRate, setCryptoRate] = useState(0);
-  const [selectedCrypto, setSelectedCrypto] = useState('');
-  const [isGeneratingAddress, setIsGeneratingAddress] = useState(false);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  useEffect(() => {
-    if (tg) {
-      tg.BackButton.show().onClick(onBack);
-    }
-    return () => tg?.BackButton.hide();
-  }, [tg, onBack]);
-
-  const handleGenerateAddress = async (crypto) => {
-    if (!tg?.initData || isGeneratingAddress || !crypto) {
-      console.warn('Generate address blocked:', {
-        hasInitData: !!tg?.initData,
-        isGeneratingAddress,
-        crypto,
-      });
-      return;
-    }
-    setIsGeneratingAddress(true);
-    try {
-      console.log('Generating address for crypto:', crypto);
-      const res = await axios.post(
-        `${API_URL}/generate-address/${tg.initDataUnsafe.user.id}`,
-        { crypto },
-        {
-          headers: {
-            'telegram-init-data': tg.initData,
-            'ngrok-skip-browser-warning': 'true',
-          },
-        }
-      );
-      console.log('Generate address response:', res.data);
-      if (!res.data.address) {
-        throw new Error('No address returned from server');
-      }
-      setAddress(res.data.address);
-      setCryptoRate(res.data.rate || 0);
-      setSelectedCrypto(crypto);
-      setShowBalanceModal(true);
-    } catch (err) {
-      console.error('Generate address error:', err.response?.data || err.message);
-      tg.showPopup({
-        message: language === 'ru' ? 'Ошибка генерации адреса' : 'Error generating address',
-      });
-    } finally {
-      setIsGeneratingAddress(false);
-    }
-  };
-
-  const texts = {
-    ru: {
-      profile: 'Профиль',
-      balance: 'Баланс',
-      topUp: 'Пополнить',
-      copied: 'Адрес скопирован',
-    },
-    en: {
-      profile: 'Profile',
-      balance: 'Balance',
-      topUp: 'Top Up',
-      copied: 'Address copied',
-    },
-  };
-
-  return (
-    <div className="p-4 max-w-md mx-auto pb-16">
-      <h1 className="text-2xl font-bold mb-4">{texts[language].profile}</h1>
-      <p className="text-lg mb-4">{username}</p>
-      <div className="mb-4">
-        <p className="text-sm text-gray-600">{texts[language].balance}</p>
-        <p className="text-lg font-semibold">
-          {balance} {displayCurrency}
-        </p>
-      </div>
-      <button
-        className={`w-full bg-blue-500 text-white px-4 py-2 rounded mb-4 ${
-          isGeneratingAddress ? 'opacity-50 cursor-not-allowed' : ''
-        }`}
-        onClick={() => setShowBalanceModal(true)}
-        disabled={isGeneratingAddress}
-      >
-        {texts[language].topUp} {isGeneratingAddress && <span className="spinner ml-2"></span>}
-      </button>
-      {showBalanceModal && (
-        <BalanceModal
-          language={language}
-          address={address}
-          crypto={selectedCrypto}
-          cryptoRate={cryptoRate}
-          displayCurrency={displayCurrency}
-          onClose={() => setShowBalanceModal(false)}
-          onCopy={() => tg.showPopup({ message: texts[language].copied })}
-          onSelectCrypto={handleGenerateAddress}
-        />
-      )}
-      <style>
-        {`
-          .spinner {
-            display: inline-block;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #3498db;
-            border-radius: 50%;
-            width: 16px;
-            height: 16px;
-            animation: spin 1s linear infinite;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}
-      </style>
-    </div>
-  );
-}
-
-export default Profile;
-
-
-
-
-
-
-
-
-BalanceModal.jsx:
-import { useState } from 'react';
-import QRCode from 'qrcode.react';
-
-function BalanceModal({ language, address, crypto, cryptoRate, displayCurrency, onClose, onCopy, onSelectCrypto }) {
-  const [selectedCrypto, setSelectedCrypto] = useState(crypto || '');
-  const supportedCryptos = ['BTC', 'USDT', 'LTC', 'ETH', 'BNB', 'AVAX', 'ADA', 'SOL'];
-
-  const texts = {
-    ru: {
-      title: 'Пополнение баланса',
-      balance: 'Текущий баланс',
-      address: 'Адрес для пополнения',
-      close: 'Закрыть',
-      copy: 'Скопировать адрес',
-      selectCrypto: 'Выберите валюту',
-    },
-    en: {
-      title: 'Top Up Balance',
-      balance: 'Current Balance',
-      address: 'Deposit Address',
-      close: 'Close',
-      copy: 'Copy Address',
-      selectCrypto: 'Select Currency',
-    },
-  };
-
-  const formatRate = (rate) => {
-    if (!rate) return 'N/A';
-    return new Intl.NumberFormat(language === 'ru' ? 'ru-RU' : 'en-US', {
-      style: 'decimal',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(rate);
-  };
-
-  const handleCryptoChange = (e) => {
-    const newCrypto = e.target.value;
-    setSelectedCrypto(newCrypto);
-    if (newCrypto) {
-      onSelectCrypto(newCrypto);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white p-4 rounded-lg max-w-sm w-full pb-16"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-xl font-bold mb-4">{texts[language].title}</h2>
-        <p className="text-sm text-gray-600 mb-2">{texts[language].selectCrypto}</p>
-        <select
-          className="w-full p-2 border rounded mb-4"
-          value={selectedCrypto}
-          onChange={handleCryptoChange}
-        >
-          <option value="">{language === 'ru' ? 'Выберите валюту' : 'Select currency'}</option>
-          {supportedCryptos.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        {selectedCrypto && (
-          <>
-            <p className="text-sm text-gray-600 mb-2">{texts[language].balance}</p>
-            <p className="text-lg font-semibold mb-4">
-              {selectedCrypto} {cryptoRate ? ` (1 ${selectedCrypto} = ${formatRate(cryptoRate)} ${displayCurrency})` : ''}
-            </p>
-            {address ? (
-              <>
-                <p className="text-sm text-gray-600 mb-2">{texts[language].address}</p>
-                <p className="text-sm break-all mb-4">{address}</p>
-                <QRCode value={address} size={128} className="mb-4 mx-auto" />
-                {selectedCrypto === 'USDT' && (
-                  <p className="text-sm text-red-500 mb-4">
-                    {language === 'ru'
-                      ? 'Отправляйте USDT только через сеть Ethereum (ERC-20). Переводы по другим сетям не будут зачислены.'
-                      : 'Send USDT only via Ethereum (ERC-20) network. Transfers via other networks will not be credited.'}
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="text-sm text-red-500 mb-4">
-                {language === 'ru' ? 'Адрес не сгенерирован' : 'Address not generated'}
-              </p>
-            )}
-          </>
-        )}
-        <div className="flex gap-4">
-          <button
-            className="flex-1 bg-gray-500 text-white px-4 py-2 rounded"
-            onClick={onClose}
-          >
-            {texts[language].close}
-          </button>
-          <button
-            className="flex-1 bg-blue-500 text-white px-4 py-2 rounded"
-            onClick={() => {
-              navigator.clipboard.writeText(address || '');
-              onCopy();
-            }}
-            disabled={!address}
-          >
-            {texts[language].copy}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default BalanceModal;
-
-
-
-
-
-
-
-
-
-BottomNav.jsx:
-import { FaHome, FaCog, FaHistory, FaUser } from 'react-icons/fa';
-
-function BottomNav({ language, onHome, onSettings, onHistory, onProfile }) {
-  const texts = {
-    ru: {
-      home: 'Главная',
-      settings: 'Настройки',
-      history: 'История',
-      profile: 'Профиль',
-    },
-    en: {
-      home: 'Home',
-      settings: 'Settings',
-      history: 'History',
-      profile: 'Profile',
-    },
-  };
-
-  return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around py-2">
-      <button
-        className="flex flex-col items-center text-gray-600"
-        onClick={onHome}
-      >
-        <FaHome className="text-xl" />
-        <span className="text-xs">{texts[language].home}</span>
-      </button>
-      <button
-        className="flex flex-col items-center text-gray-600"
-        onClick={onSettings}
-      >
-        <FaCog className="text-xl" />
-        <span className="text-xs">{texts[language].settings}</span>
-      </button>
-      <button
-        className="flex flex-col items-center text-gray-600"
-        onClick={onHistory}
-      >
-        <FaHistory className="text-xl" />
-        <span className="text-xs">{texts[language].history}</span>
-      </button>
-      <button
-        className="flex flex-col items-center text-gray-600"
-        onClick={onProfile}
-      >
-        <FaUser className="text-xl" />
-        <span className="text-xs">{texts[language].profile}</span>
-      </button>
-    </div>
-  );
-}
-
-export default BottomNav;
 
 
 
@@ -1043,6 +833,7 @@ router.post('/set-language/:telegram_id', async (req, res) => {
   const { language } = req.body;
   try {
     let user = await User.findOne({ telegram_id });
+    const display_currency = language === 'ru' ? 'RUB' : 'USD';
     if (!user) {
       const index = Math.floor(Math.random() * 1000000);
       user = await User.create({
@@ -1053,20 +844,57 @@ router.post('/set-language/:telegram_id', async (req, res) => {
         balance: 1.0,
         crypto: 'BTC',
         language,
-        display_currency: language === 'ru' ? 'RUB' : 'USD',
+        display_currency,
         last_selected_resource: 'other',
       });
     } else {
       user.language = language;
-      user.display_currency = language === 'ru' ? 'RUB' : 'USD';
+      user.display_currency = display_currency;
       await user.save();
     }
-    res.json({ success: true, language, display_currency: user.display_currency });
+    res.json({ success: true, language, display_currency });
     console.log('Set language completed, time:', Date.now() - start, 'ms');
   } catch (err) {
     console.error('Set language error:', err.message);
     res.status(500).json({ error: 'Server error' });
     console.log('Set language failed, time:', Date.now() - start, 'ms');
+  }
+});
+
+router.post('/set-currency/:telegram_id', async (req, res) => {
+  const start = Date.now();
+  const { telegram_id } = req.params;
+  const { currency } = req.body;
+  try {
+    if (!['RUB', 'USD'].includes(currency)) {
+      res.status(400).json({ error: `Invalid currency: ${currency}` });
+      console.log('Set currency failed (invalid currency), time:', Date.now() - start, 'ms');
+      return;
+    }
+    let user = await User.findOne({ telegram_id });
+    if (!user) {
+      const index = Math.floor(Math.random() * 1000000);
+      user = await User.create({
+        telegram_id,
+        wallet_index: index,
+        address: '',
+        addresses: {},
+        balance: 1.0,
+        crypto: 'BTC',
+        language: 'ru',
+        display_currency: currency,
+        last_selected_resource: 'other',
+      });
+    } else {
+      user.display_currency = currency;
+      await user.save();
+    }
+    res.json({ success: true, display_currency: currency });
+    console.log('Set currency completed, time:', Date.now() - start, 'ms');
+  } catch (err) {
+    console.error('Set currency error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+    console.log('Set currency failed, time:', Date.now() - start, 'ms');
   }
 });
 
@@ -1200,7 +1028,7 @@ async function processPurchase(user, telegram_id, country, service, currency, re
     return;
   }
   const number = `+${Math.floor(10000000000 + Math.random() * 90000000000)}`;
-  const code = service === 'sms' ? `CODE-${Math.random().toString(36).slice(2, 8)}` : null;
+  const code = service === 'sms' ? `CODE-${Math.random().toString(36).slice(2, 8 Beeswax)}` : null;
   const last4 = service === 'call' ? number.slice(-4) : null;
   const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   try {
@@ -1241,7 +1069,6 @@ async function processPurchase(user, telegram_id, country, service, currency, re
 }
 
 module.exports = router;
-
 
 
 
